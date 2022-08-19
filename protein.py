@@ -62,8 +62,7 @@ def graph(pdbcode, chain='all', doplot=False):
     new_funcs = {
         "granularity":
         'CA',
-        "keep_hets":
-        False,
+        "keep_hets": [False],
         "edge_construction_functions": [
             gp.add_peptide_bonds, gp.add_hydrogen_bond_interactions, gp.add_disulfide_interactions,
             gp.add_ionic_interactions, gp.add_aromatic_interactions, gp.add_aromatic_sulphur_interactions,
@@ -115,10 +114,16 @@ if __name__ == '__main__':
     # argparse.ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=[], formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True)
     parser = argparse.ArgumentParser(description='')
     # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
-    parser.add_argument('-a', '--arg1')
+    parser.add_argument('-p', '--pdb', help='Compute and plot the graph of the given PDB file')
+    parser.add_argument('--chain', help='Chain to compute the graph on')
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)
         sys.exit()
+    if args.pdb is not None:
+        if args.chain is None:
+            print("Please, give a chain id using --chain option")
+        else:
+            graph(args.pdb, chain=args.chain, doplot=True)
