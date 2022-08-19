@@ -59,16 +59,15 @@ def graph(pdbcode, chain='all', doplot=False):
     >>> g
     Data(edge_index=[2, 375], node_id=[85], num_nodes=85, x=[85, 20])
     """
+    # Edges function
+    # gp.add_peptide_bonds, gp.add_hydrogen_bond_interactions, gp.add_disulfide_interactions,
+    # gp.add_ionic_interactions, gp.add_aromatic_interactions, gp.add_aromatic_sulphur_interactions,
+    # gp.add_cation_pi_interactions,
     new_funcs = {
-        "granularity":
-        'CA',
+        "granularity": 'CA',
         "keep_hets": [False],
-        "edge_construction_functions": [
-            gp.add_peptide_bonds, gp.add_hydrogen_bond_interactions, gp.add_disulfide_interactions,
-            gp.add_ionic_interactions, gp.add_aromatic_interactions, gp.add_aromatic_sulphur_interactions,
-            gp.add_cation_pi_interactions,
-            lambda x: gp.add_distance_threshold(x, long_interaction_threshold=2, threshold=8.)
-        ],
+        "edge_construction_functions":
+        [lambda x: gp.add_distance_threshold(x, long_interaction_threshold=2, threshold=8.)],
         "node_metadata_functions": [amino_acid_one_hot]
     }
     config = ProteinGraphConfig(**new_funcs)
