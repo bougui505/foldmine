@@ -55,9 +55,8 @@ format_convertor = GraphFormatConvertor('nx', 'pyg', verbose=None, columns=['edg
 def graph(pdbcode, chain='all', doplot=False):
     """
     >>> g = graph('1ycr', chain='A', doplot=False)
-    85
     >>> g
-    Data(edge_index=[2, 375], node_id=[85], num_nodes=85, x=[85, 20])
+    Data(edge_index=[2, 284], node_id=[85], num_nodes=85, x=[85, 20])
     """
     # Edges function
     # gp.add_peptide_bonds, gp.add_hydrogen_bond_interactions, gp.add_disulfide_interactions,
