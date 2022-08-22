@@ -36,6 +36,7 @@
 #                                                                           #
 #############################################################################
 import os
+import logging
 import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv
@@ -44,12 +45,11 @@ import BLASTloader
 
 class GCN(torch.nn.Module):
     """
-    >>> dataset = BLASTloader.PDBdataset()
+    >>> seed = torch.manual_seed(42)
+    >>> dataset = BLASTloader.PDBdataset(homologs_file="data/homologs.txt.gz")
     >>> g_anchor, g_positive = dataset.__getitem__(1000)
-    154
-    ...
     >>> g_anchor
-    Data(edge_index=[2, 728], node_id=[154], num_nodes=154, x=[154, 20])
+    Data(edge_index=[2, 558], node_id=[154], num_nodes=154, x=[154, 20])
     >>> gcn = GCN()
     >>> z = gcn(g_anchor)
     >>> z.shape
@@ -60,31 +60,23 @@ class GCN(torch.nn.Module):
     >>> out.shape
     torch.Size([154, 512])
     """
-    def __init__(self, in_channels=20, latent_dim=512, normalized_latent_space=True):
+
+    def __init__(self, in_channels=20, hidden_dims=(256, 256), latent_dim=512, normalized_latent_space=True):
         super().__init__()
         self.normalized_latent_space = normalized_latent_space
-        self.conv1 = GCNConv(in_channels, 8)
-        self.conv2 = GCNConv(8, 16)
-        self.conv3 = GCNConv(16, 32)
-        self.conv4 = GCNConv(32, 64)
-        self.conv5 = GCNConv(64, 128)
-        self.conv6 = GCNConv(128, latent_dim)
+        self.hidden_dims = hidden_dims
+
+        all_dims = in_channels, *hidden_dims, latent_dim
+        self.convs = []
+        for prev, next in zip(all_dims, all_dims[1:]):
+            self.convs.append(GCNConv(prev, next))
 
     def forward(self, data, get_conv=False):
         x, edge_index = data.x, data.edge_index
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = self.conv2(x, edge_index)
-        x = F.relu(x)
-        x = self.conv3(x, edge_index)
-        x = F.relu(x)
-        x = self.conv4(x, edge_index)
-        x = F.relu(x)
-        x = self.conv5(x, edge_index)
-        x = F.relu(x)
-        x = self.conv6(x, edge_index)
-        x = F.relu(x)
-        x = F.tanh(x)
+        for conv in self.convs:
+            x = conv(x, edge_index)
+            x = F.relu(x)
+        x = torch.tanh(x)
         z = torch.max(x, dim=0).values
         if self.normalized_latent_space:
             z = z / torch.linalg.norm(z)
@@ -111,6 +103,7 @@ if __name__ == '__main__':
     import sys
     import doctest
     import argparse
+
     # ### UNCOMMENT FOR LOGGING ####
     # import os
     # import logging
