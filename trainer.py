@@ -133,7 +133,7 @@ def get_contrastive_loss(out, tau=1.):
     if n > 0:
         loss = loss / n
     loss = torch.squeeze(loss)
-    assert not torch.isnan(loss), 'ERROR: loss is nan'
+    assert not torch.isnan(loss), 'loss is nan'
     return loss
 
 
@@ -210,7 +210,10 @@ def train(
             if bs > 0:
                 out = forward_batch(batch, model)
                 if len(out) > 0:
-                    loss = get_contrastive_loss(out)
+                    try:
+                        loss = get_contrastive_loss(out)
+                    except AssertionError:
+                        print('AssertionError: loss is nan. Skipping backward...')
                     try:
                         loss.backward()
                         # torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
