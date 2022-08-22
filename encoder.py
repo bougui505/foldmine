@@ -67,7 +67,7 @@ class GCN(torch.nn.Module):
         self.hidden_dims = hidden_dims
 
         all_dims = in_channels, *hidden_dims, latent_dim
-        self.convs = []
+        self.convs = torch.nn.ModuleList()
         for prev, next in zip(all_dims, all_dims[1:]):
             self.convs.append(GCNConv(prev, next))
 
