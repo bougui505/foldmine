@@ -71,7 +71,7 @@ def graph(pdbcode, chain='all', doplot=False):
         "node_metadata_functions": [amino_acid_one_hot]
     }
     config = ProteinGraphConfig(**new_funcs)
-    g = construct_graph(config=config, pdb_path=f"pdb/{pdbcode[1:3]}/pdb{pdbcode}.ent.gz", chain_selection=chain)
+    g = construct_graph(config=config, pdb_path=f"data/pdb/{pdbcode[1:3]}/pdb{pdbcode}.ent.gz", chain_selection=chain)
     if doplot:
         p = plotly_protein_structure_graph(g,
                                            colour_edges_by="kind",
