@@ -4,3 +4,4 @@ models
 pdb
 protein.log
 trainer.log
+timeloading.py
