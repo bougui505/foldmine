@@ -45,28 +45,36 @@ import graphein.protein as gp
 from graphein.ml.conversion import GraphFormatConvertor
 from graphein.protein.features.nodes.amino_acid import amino_acid_one_hot
 import logging
+import torch_geometric
+import networkx as nx
 
 logger = logging.getLogger('graphein.protein')
 logger.setLevel(level="ERROR")
 
-format_convertor = GraphFormatConvertor('nx', 'pyg', verbose=None, columns=['edge_index', "amino_acid_one_hot"])
+format_convertor = GraphFormatConvertor('nx',
+                                        'pyg',
+                                        verbose=None,
+                                        columns=['edge_index', "amino_acid_one_hot", 'bindist'])
 
 
-def graph(pdbcode, chain='all', doplot=False):
+def graph(pdbcode, chain='all', doplot=False, distbins=[4, 6, 8, 12]):
     """
     >>> g = graph('1ycr', chain='A', doplot=False)
     >>> g
-    Data(edge_index=[2, 284], node_id=[85], num_nodes=85, x=[85, 20])
+    Data(edge_index=[2, 880], node_id=[85], bindist=[880], num_nodes=85, x=[85, 20])
     """
     # Edges function
     # gp.add_peptide_bonds, gp.add_hydrogen_bond_interactions, gp.add_disulfide_interactions,
     # gp.add_ionic_interactions, gp.add_aromatic_interactions, gp.add_aromatic_sulphur_interactions,
     # gp.add_cation_pi_interactions,
     new_funcs = {
-        "granularity": 'CA',
+        "granularity":
+        'CA',
         "keep_hets": [False],
-        "edge_construction_functions":
-        [lambda x: gp.add_distance_threshold(x, long_interaction_threshold=2, threshold=8.)],
+        "edge_construction_functions": [
+            lambda g: gp.add_distance_threshold(g, long_interaction_threshold=2, threshold=max(distbins)),
+            gp.add_distance_to_edges
+        ],
         "node_metadata_functions": [amino_acid_one_hot]
     }
     config = ProteinGraphConfig(**new_funcs)
@@ -79,6 +87,13 @@ def graph(pdbcode, chain='all', doplot=False):
                                            plot_title="Peptide backbone graph. Nodes coloured by degree.",
                                            node_size_multiplier=1)
         p.show()
+    # One hot encoding of distances using distbins argument
+    for e in g.edges(data=True):
+        dist = e[2]['distance']
+        binid = np.digitize(dist, distbins)
+        onehot = np.zeros((1, len(distbins)))
+        onehot[0, binid] = 1
+        e[2]['bindist'] = onehot
     g = format_convertor(g)
     g.x = torch.asarray(np.array(g.amino_acid_one_hot)).type(torch.FloatTensor)
     del g.amino_acid_one_hot
@@ -124,4 +139,5 @@ if __name__ == '__main__':
         if args.chain is None:
             print("Please, give a chain id using --chain option")
         else:
-            graph(args.pdb, chain=args.chain, doplot=True)
+            g = graph(args.pdb, chain=args.chain, doplot=False)
+            print(g)
