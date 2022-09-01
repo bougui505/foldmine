@@ -69,7 +69,7 @@ def get_batch_test():
 def get_norm(out):
     """
     >>> batch = get_batch_test()
-    >>> model = encoder.GCN(latent_dim=512)
+    >>> model = encoder.ProteinGraphModel(latent_dim=512)
     >>> out = forward_batch(batch, model)
     >>> [(z_full.shape, z_fragment.shape) for z_full, z_fragment in out]
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
@@ -86,7 +86,7 @@ def get_norm(out):
 def forward_batch(batch, model):
     """
     >>> batch = get_batch_test()
-    >>> model = encoder.GCN()
+    >>> model = encoder.ProteinGraphModel()
     >>> out = forward_batch(batch, model)
     >>> [(z_anchor.shape, z_positive.shape) for z_anchor, z_positive in out]
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
@@ -139,7 +139,7 @@ def get_contrastive_loss(out, tau=1.):
 
 def load_model(filename, latent_dim=512):
     """
-    >>> model = encoder.GCN()
+    >>> model = encoder.ProteinGraphModel()
     >>> torch.save(model.state_dict(), 'models/gcn_test.pt')
     >>> gcn = load_model('models/gcn_test.pt')
     Loading GCN model
@@ -149,7 +149,7 @@ def load_model(filename, latent_dim=512):
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = encoder.GCN(latent_dim=latent_dim)
+    model = encoder.ProteinGraphModel(latent_dim=latent_dim)
     model.load_state_dict(torch.load(filename, map_location=torch.device(device)))
     print('Loading GCN model')
     model.eval()
@@ -186,7 +186,7 @@ def train(
         model.train()
     else:
         log('GCN model')
-        model = encoder.GCN(latent_dim=latent_dim)
+        model = encoder.ProteinGraphModel(latent_dim=latent_dim)
     model = model.to(device)
     opt = torch.optim.Adam(model.parameters())
     t_0 = time.time()

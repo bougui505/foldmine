@@ -39,18 +39,18 @@ import os
 import logging
 import torch
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv, RGCNConv
 import BLASTloader
 
 
-class GCN(torch.nn.Module):
+class ProteinGraphModel(torch.nn.Module):
     """
     >>> seed = torch.manual_seed(42)
     >>> dataset = BLASTloader.PDBdataset(homologs_file="data/homologs.txt.gz")
     >>> g_anchor, g_positive = dataset.__getitem__(1000)
     >>> g_anchor
     Data(edge_index=[2, 558], node_id=[154], num_nodes=154, x=[154, 20])
-    >>> gcn = GCN()
+    >>> gcn = ProteinGraphModel()
     >>> z = gcn(g_anchor)
     >>> z.shape
     torch.Size([1, 512])
@@ -61,20 +61,24 @@ class GCN(torch.nn.Module):
     torch.Size([154, 512])
     """
 
-    def __init__(self, in_channels=20, hidden_dims=(256, 256), latent_dim=512, normalized_latent_space=True):
+    def __init__(self, in_channels=20, num_relations=6, hidden_dims=(256, 256), latent_dim=512,
+                 normalized_latent_space=True):
         super().__init__()
         self.normalized_latent_space = normalized_latent_space
         self.hidden_dims = hidden_dims
+        self.num_relations = num_relations
 
         all_dims = in_channels, *hidden_dims, latent_dim
         self.convs = torch.nn.ModuleList()
         for prev, next in zip(all_dims, all_dims[1:]):
-            self.convs.append(GCNConv(prev, next))
+            self.convs.append(RGCNConv(prev, next, num_relations=num_relations))
+            # self.convs.append(GCNConv(prev, next))
 
     def forward(self, data, get_conv=False):
-        x, edge_index = data.x, data.edge_index
+        x = data.x
         for conv in self.convs:
-            x = conv(x, edge_index)
+            x = conv(x, edge_index = data.edge_index, edge_type=data.edge_type)
+            # x = conv(x, data.edge_index)
             x = F.relu(x)
         x = torch.tanh(x)
         z = torch.max(x, dim=0).values
@@ -114,9 +118,16 @@ if __name__ == '__main__':
     # argparse.ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=[], formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True)
     parser = argparse.ArgumentParser(description='')
     # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
-    parser.add_argument('-a', '--arg1')
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
+
+    seed = torch.manual_seed(42)
+    dataset = BLASTloader.PDBdataset(homologs_file="data/homologs.txt.gz")
+    g_anchor, g_positive = dataset.__getitem__(1000)
+    print(g_anchor)
+    model = ProteinGraphModel()
+    z = model(g_anchor)
+    print(z.shape)
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)
