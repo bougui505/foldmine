@@ -57,11 +57,11 @@ format_convertor = GraphFormatConvertor('nx',
                                         columns=['edge_index', "amino_acid_one_hot", 'bindist'])
 
 
-def graph(pdbcode, chain='all', doplot=False, distbins=[4, 6, 8, 12]):
+def graph(pdbcode, chain='all', doplot=False, distbins=[6, 8, 10, 12]):
     """
     >>> g = graph('1ycr', chain='A', doplot=False)
     >>> g
-    Data(edge_index=[2, 880], node_id=[85], bindist=[880], num_nodes=85, x=[85, 20])
+    Data(edge_index=[2, 879], node_id=[85], bindist=[879], num_nodes=85, x=[85, 20])
     """
     # Edges function
     # gp.add_peptide_bonds, gp.add_hydrogen_bond_interactions, gp.add_disulfide_interactions,
@@ -72,7 +72,7 @@ def graph(pdbcode, chain='all', doplot=False, distbins=[4, 6, 8, 12]):
         'CA',
         "keep_hets": [False],
         "edge_construction_functions": [
-            lambda g: gp.add_distance_threshold(g, long_interaction_threshold=2, threshold=max(distbins)),
+            lambda g: gp.add_distance_threshold(g, long_interaction_threshold=2, threshold=max(distbins) - 0.01),
             gp.add_distance_to_edges
         ],
         "node_metadata_functions": [amino_acid_one_hot]
@@ -91,9 +91,10 @@ def graph(pdbcode, chain='all', doplot=False, distbins=[4, 6, 8, 12]):
     for e in g.edges(data=True):
         dist = e[2]['distance']
         binid = np.digitize(dist, distbins)
-        onehot = np.zeros((1, len(distbins)))
-        onehot[0, binid] = 1
-        e[2]['bindist'] = onehot
+        e[2]['bindist'] = [binid]
+        # onehot = np.zeros((1, len(distbins)))
+        # onehot[0, binid] = 1
+        # e[2]['bindist'] = onehot
     g = format_convertor(g)
     g.x = torch.asarray(np.array(g.amino_acid_one_hot)).type(torch.FloatTensor)
     del g.amino_acid_one_hot
