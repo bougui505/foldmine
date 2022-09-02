@@ -40,7 +40,7 @@ import BLASTloader
 import torch
 import encoder
 import time
-from eta import ETA
+from utils import ETA
 import datetime
 
 # See: https://discuss.pytorch.org/t/runtimeerror-received-0-items-of-ancdata/4999
@@ -66,70 +66,82 @@ def get_batch_test():
     return batch
 
 
-def get_norm(out):
+def get_norm(nested_out):
     """
     >>> batch = get_batch_test()
     >>> model = encoder.ProteinGraphModel(latent_dim=512)
     >>> out = forward_batch(batch, model)
-    >>> [(z_full.shape, z_fragment.shape) for z_full, z_fragment in out]
+    >>> [(z_full.shape, z_fragment.shape) for z_full, z_fragment in nested_out]
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
-    >>> get_norm(out)
+    >>> get_norm(nested_out)
     tensor(..., grad_fn=<MeanBackward0>)
     """
-    z_full_list = torch.cat([e[0] for e in out])  # torch.Size([4, 512])
-    z_fragment_list = torch.cat([e[1] for e in out])  # torch.Size([4, 512])
-    z = torch.cat((z_full_list, z_fragment_list))  # torch.Size([8, 512])
+    tensor_list = [e[0] for e in nested_out]
+    z_anchor_list = torch.cat([e[0] for e in nested_out], dim=0)  # torch.Size([4, 512])
+    z_positive_list = torch.cat([e[1] for e in nested_out], dim=0)  # torch.Size([4, 512])
+    z = torch.cat((z_anchor_list, z_positive_list), dim=0)  # torch.Size([8, 512])
     norms = torch.linalg.norm(z, dim=1)
     return norms.mean()
 
 
 def forward_batch(batch, model):
     """
+    The goal is to make a separate inference on all graphs.
     >>> batch = get_batch_test()
     >>> model = encoder.ProteinGraphModel()
     >>> out = forward_batch(batch, model)
-    >>> [(z_anchor.shape, z_positive.shape) for z_anchor, z_positive in out]
+    >>> [(z_anchor.shape, z_positive.shape) for z_anchor, z_positive in nested_out]
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
     """
-    out = []
+    nested_out = []
     for anchor, positive in batch:
         if anchor.x is not None and positive.x is not None:
             z_anchor = model(anchor)
             z_positive = model(positive)
-            out.append((z_anchor, z_positive))
-    return out
+            nested_out.append((z_anchor, z_positive))
+    return nested_out
 
 
-def get_contrastive_loss(out, tau=1.):
+def get_contrastive_loss(nested_out, tau=1., normalize=True, num_negative_anchors=None):
     """
     >>> n = 3
     >>> out = [(torch.randn(1, 512), torch.randn(1, 512)) for i in range(n)]
-    >>> loss = get_contrastive_loss(out)
+    >>> loss = get_contrastive_loss(nested_out)
     >>> loss
     tensor(...)
     """
-    n = len(out)
-    z_anchor_list = [e[0] for e in out]
-    z_positive_list = [e[1] for e in out]
+    n = len(nested_out)
+    if num_negative_anchors is None:
+        num_negative_anchors = len(nested_out)
+
+    if normalize:
+        z_anchor_list = [pair[0] / torch.linalg.norm(pair[0], dim=1) for pair in nested_out]
+        z_positive_list = [pair[1] / torch.linalg.norm(pair[1], dim=1) for pair in nested_out]
+    else:
+        z_anchor_list = [pair[0] for pair in nested_out]
+        z_positive_list = [pair[1] for pair in nested_out]
     loss = 0.
     for i in range(n):
-        z_full_i = z_anchor_list[i]
-        # z_fragment_i = z_fragment_list[i]
+        # Get numerator :
+        z_anchor_i = z_anchor_list[i]
+        sim_num = torch.matmul(z_anchor_i, z_positive_list[i].T)
+        num = torch.exp(sim_num / tau)
+        # log(f'z_full_i: {z_full_i}')
+        # log(f'sim_num: {sim_num}')
+
+        # Get denominator by looping over other anchors
         den = 0.
-        for j in range(n):
-            z_full_j = z_anchor_list[j]
-            z_fragment_j = z_positive_list[j]
-            if i == j:
-                sim_num = torch.matmul(z_full_i, z_fragment_j.T)
-                # log(f'z_full_i: {z_full_i}')
-                # log(f'sim_num: {sim_num}')
-                num = torch.exp(sim_num / tau)
-            else:
-                sim_den = torch.matmul(z_full_i, z_full_j.T)
-                # log(f'sim_den: {sim_den}')
+        for j in range(num_negative_anchors):
+            z_anchor_j = z_anchor_list[j]
+            if i != j:
+                sim_den = torch.matmul(z_anchor_i, z_anchor_j.T)
                 den += torch.exp(sim_den / tau)
+                # log(f'sim_den: {sim_den}')
         # log(f'num:{num}, den: {den}')
+
+        # Create a loss term
         loss -= torch.log((num + 1e-8) / (den + 1e-8))
+
     if n > 0:
         loss = loss / n
     loss = torch.squeeze(loss)
@@ -179,67 +191,59 @@ def train(
                                              shuffle=True,
                                              num_workers=num_workers,
                                              collate_fn=collate_fn)
-    dataiter = iter(dataloader)
-    if os.path.exists(modelfilename):
-        log(f'# Loading model from {modelfilename}')
-        model = load_model(filename=modelfilename, latent_dim=latent_dim)
-        model.train()
-    else:
-        log('GCN model')
-        model = encoder.ProteinGraphModel(latent_dim=latent_dim)
+    # dataiter = iter(dataloader)
+
+    # Temporarily remove model loading for debugging
+    # if modelfilename is not None and os.path.exists(modelfilename):
+    #     log(f'# Loading model from {modelfilename}')
+    #     model = load_model(filename=modelfilename, latent_dim=latent_dim)
+    #     model.train()
+    # else:
+    #     log('GCN model')
+    #     model = encoder.ProteinGraphModel(latent_dim=latent_dim, normalized_latent_space=False)
+
+    model = encoder.ProteinGraphModel(latent_dim=latent_dim, normalized_latent_space=False)
     model = model.to(device)
     opt = torch.optim.Adam(model.parameters())
-    t_0 = time.time()
     save_model(model, modelfilename)
-    epoch = 0
+
+    t_0 = time.time()
     step = 0
-    total_steps = n_epochs * len(dataiter)
+    total_steps = n_epochs * len(dataloader)
     eta = ETA(total_steps=total_steps)
     loss = None
-    while epoch < n_epochs:
-        opt.zero_grad()
-        try:
+    for epoch in range(n_epochs):
+        for batch in dataloader:
             step += 1
-            batch = next(dataiter)
-            try:
-                batch = [(e[0].to(device), e[1].to(device)) for e in batch if e is not None]
-            except RuntimeError:
-                print('RuntimeError: CUDA out of memory. Skipping batch...')
-                batch = []
+            # batch = next(dataiter)
+            batch = [(e[0].to(device), e[1].to(device)) for e in batch if e is not None]
             bs = len(batch)
-            if bs > 0:
-                out = forward_batch(batch, model)
-                if len(out) > 0:
-                    try:
-                        loss = get_contrastive_loss(out)
-                    except AssertionError:
-                        print('AssertionError: loss is nan. Skipping backward...')
-                    try:
-                        loss.backward()
-                        # torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
-                        # torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0, norm_type=2)
-                        opt.step()
-                    except RuntimeError:
-                        print('RuntimeError: CUDA out of memory. Skipping backward...')
+            nested_out = forward_batch(batch, model)
+            norm = get_norm(nested_out)
+            norm_loss = 0.01 * (norm - 1) ** 2
+            contrastive_loss = get_contrastive_loss(nested_out)
+            loss = norm_loss + contrastive_loss
+            loss.backward()
+            opt.step()
             opt.zero_grad()
+
             if (time.time() - t_0) / 60 >= save_each:
                 t_0 = time.time()
                 save_model(model, modelfilename)
+
             if not step % print_each:
                 eta_val = eta(step)
                 last_saved = (time.time() - t_0)
                 last_saved = str(datetime.timedelta(seconds=last_saved))
-                if len(out) > 0:
-                    norm = get_norm(out)
-                if loss is not None:
-                    log(f"epoch: {epoch+1}|step: {step}|loss: {loss:.4f}|norm: {norm:.4f}|bs: {bs}|last_saved: {last_saved}| eta: {eta_val}"
-                        )
-        except StopIteration:
-            dataiter = iter(dataloader)
-            epoch += 1
-            if save_each_epoch:
-                t_0 = time.time()
-                save_model(model, modelfilename)
+                print_msg = f"epoch: {epoch + 1}|step: {step}|loss: {loss:.4f}|norm: {norm:.4f}|bs: {bs}|last_saved: {last_saved}| eta: {eta_val}"
+                print(print_msg)
+                log(print_msg)
+        # except StopIteration:
+        #     dataiter = iter(dataloader)
+        #     epoch += 1
+        if save_each_epoch:
+            t_0 = time.time()
+            save_model(model, modelfilename)
 
 
 def log(msg):
@@ -261,6 +265,7 @@ if __name__ == '__main__':
     import argparse
     # ### UNCOMMENT FOR LOGGING ####
     import logging
+
     logger = logging.getLogger()
     logger.setLevel(level=logging.DEBUG)
     logfilename = os.path.splitext(os.path.basename(__file__))[0] + '.log'
@@ -279,8 +284,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='')
     # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('--train', help='Train the SSCL', action='store_true')
-    parser.add_argument('--epochs', type=int)
-    parser.add_argument('--model', help='Model to load or for saving', metavar='model.pt')
+    parser.add_argument('--epochs', type=int, default=10)
+    parser.add_argument('--model', help='Model to load or for saving', metavar='model.pt', default='models/default.pt')
     parser.add_argument('--print_each', type=int, default=100)
     parser.add_argument('--latent_dim', default=512, type=int)
     parser.add_argument('--save_every',

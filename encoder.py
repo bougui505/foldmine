@@ -40,8 +40,8 @@ import logging
 import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GCNConv, RGCNConv
-import BLASTloader
 
+import BLASTloader
 
 class ProteinGraphModel(torch.nn.Module):
     """
@@ -74,20 +74,17 @@ class ProteinGraphModel(torch.nn.Module):
             self.convs.append(RGCNConv(prev, next, num_relations=num_relations))
             # self.convs.append(GCNConv(prev, next))
 
-    def forward(self, data, get_conv=False):
+    def forward(self, data):
         x = data.x
         for conv in self.convs:
             x = conv(x, edge_index = data.edge_index, edge_type=data.edge_type)
             # x = conv(x, data.edge_index)
             x = F.relu(x)
         x = torch.tanh(x)
-        z = torch.max(x, dim=0).values
-        if self.normalized_latent_space:
-            z = z / torch.linalg.norm(z)
-        if get_conv:
-            return z[None, ...], x
-        else:
-            return z[None, ...]
+        z = torch.max(x, dim=-2).values
+        # normalized_z = z / torch.linalg.norm(z)
+        return z[None, ...]
+        # return z[None, ...], x
 
 
 def log(msg):
