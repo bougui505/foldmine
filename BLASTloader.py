@@ -56,7 +56,7 @@ class PDBdataset(torch.utils.data.Dataset):
     (Data(edge_index=[2, 728], node_id=[154], num_nodes=154, x=[154, 20]), ...)
     """
 
-    def __init__(self, homologs_file='data/homologs.txt.gz'):
+    def __init__(self, homologs_file='data/homologs_foldseek.txt.gz'):
         self.hf = homologs_file
         self.mapping = self.get_mapping()
 
