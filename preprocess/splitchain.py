@@ -90,7 +90,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
-    splitter = Splitter(outdir='pdb_mmtf_chainsplit')
+    splitter = Splitter(outdir='pdb_chainsplit')
     splitter = torch.utils.data.DataLoader(splitter, num_workers=os.cpu_count(), collate_fn=lambda x: x)
     for _ in splitter:
         pass

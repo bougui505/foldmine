@@ -44,6 +44,10 @@ import torch_geometric.data
 
 import protein
 
+logfilename = os.path.splitext(os.path.basename(__file__))[0] + '.log'
+logging.basicConfig(filename=logfilename, level=logging.INFO, format='%(asctime)s: %(message)s')
+logging.info(f"################ Starting {__file__} ################")
+
 
 class PDBdataset(torch.utils.data.Dataset):
     """
@@ -55,7 +59,6 @@ class PDBdataset(torch.utils.data.Dataset):
     ...
     (Data(edge_index=[2, 728], node_id=[154], num_nodes=154, x=[154, 20]), ...)
     """
-
     def __init__(self, homologs_file='data/homologs_foldseek.txt.gz'):
         self.hf = homologs_file
         self.mapping = self.get_mapping()
@@ -85,7 +88,9 @@ class PDBdataset(torch.utils.data.Dataset):
         try:
             g_anchor = protein.graph(pdbcode=anchor[:4], chain=anchor[5:])
             g_positive = protein.graph(pdbcode=positive[:4], chain=positive[5:])
-        except (ValueError, KeyError, FileNotFoundError):
+        except Exception as e:  #  (ValueError, KeyError, FileNotFoundError):
+            log(e)
+            log(f"Graphein error for {anchor}, {positive}")
             # Not a protein chain
             g_anchor = torch_geometric.data.Data(x=None, edge_index=None)
             g_positive = torch_geometric.data.Data(x=None, edge_index=None)

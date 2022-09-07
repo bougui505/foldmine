@@ -51,20 +51,21 @@ import networkx as nx
 logger = logging.getLogger("graphein.protein")
 logger.setLevel(level="ERROR")
 
-CHOICES = {'peptide_bond': gp.add_peptide_bonds,
-           'hbond': gp.add_hydrogen_bond_interactions,
-           'aromatic': gp.add_aromatic_interactions,
-           'aromatic_sulphur': gp.add_aromatic_sulphur_interactions,
-           'ionic': gp.add_ionic_interactions,
-           'pi': gp.add_cation_pi_interactions,
-           'disulfide': gp.add_disulfide_interactions}
+CHOICES = {
+    'peptide_bond': gp.add_peptide_bonds,
+    'hbond': gp.add_hydrogen_bond_interactions,
+    'aromatic': gp.add_aromatic_interactions,
+    'aromatic_sulphur': gp.add_aromatic_sulphur_interactions,
+    'ionic': gp.add_ionic_interactions,
+    'pi': gp.add_cation_pi_interactions,
+    'disulfide': gp.add_disulfide_interactions
+}
 
 
 class GraphConfig:
     """
     Just a small class to encapsulate the graph encoding choices and to be able to json dump them.
     """
-
     def __init__(self, choices=('peptide_bond', 'distance', 'hbond'), distbins=(6, 8, 10, 12)):
         self.distbins = distbins
 
@@ -80,10 +81,11 @@ class GraphConfig:
         if 'distance' in choices:
             self.distbins = distbins
             self.num_edge_types += len(distbins)
-            self.edge_creating_funcs['distance'] = lambda g: gp.add_distance_threshold(g, long_interaction_threshold=2,
-                                                                                       threshold=max(distbins) - 0.01)
+            self.edge_creating_funcs['distance'] = lambda g: gp.add_distance_threshold(
+                g, long_interaction_threshold=2, threshold=max(distbins) - 0.01)
 
-        self.format_convertor = GraphFormatConvertor("nx", "pyg",
+        self.format_convertor = GraphFormatConvertor("nx",
+                                                     "pyg",
                                                      columns=["amino_acid_one_hot", "edge_index", "edge_type"])
 
     def graphein_to_simple_nx(self, graphein_graph):
@@ -148,8 +150,8 @@ def graph(pdbcode, chain='all', doplot=False, graph_config=GraphConfig()):
         "edge_construction_functions": edge_construction_funcs,
     }
     config = ProteinGraphConfig(**new_funcs)
-    graphein_graph = construct_graph(config=config, pdb_path=f"data/pdb/{pdbcode[1:3]}/pdb{pdbcode}.ent.gz",
-                                     chain_selection=chain)
+    pdb_path = f"data/pdb_chainsplit/{pdbcode[1:3].upper()}/{pdbcode.upper()}_{chain}.pdb.gz"
+    graphein_graph = construct_graph(config=config, pdb_path=pdb_path)
     if doplot:
         p = plotly_protein_structure_graph(graphein_graph,
                                            colour_edges_by="kind",
