@@ -74,7 +74,7 @@ class Splitter(torch.utils.data.Dataset):
         cmd.load(filename=pdbfile, object=pymolname)
         chains = cmd.get_chains(f'{pymolname} and polymer.protein')
         for chain in chains:
-            fn = f'{dirname}/{pdbcode}_{chain}.pdb'
+            fn = f'{dirname}/{pdbcode}_{chain}.pdb.gz'
             # print(fn)
             cmd.save(fn, selection=f'{pymolname} and polymer.protein and chain {chain}')
         cmd.delete(pymolname)
