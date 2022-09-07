@@ -52,7 +52,7 @@ class Splitter(torch.utils.data.Dataset):
     See: ~/source/misc/shell/updatePDB.sh to download the PDB
     """
     def __init__(self, outdir='pdb_chainsplit'):
-        self.list_IDs = glob.glob('**/*.mmtf')
+        self.list_IDs = glob.glob('pdb_mmtf/**/*.mmtf')
         self.outdir = outdir
         # os.mkdir(outdir)
         cmd.reinitialize()
@@ -75,8 +75,8 @@ class Splitter(torch.utils.data.Dataset):
         chains = cmd.get_chains(f'{pymolname} and polymer.protein')
         for chain in chains:
             fn = f'{dirname}/{pdbcode}_{chain}.pdb'
-            print(fn)
-            # cmd.save(fn, selection=f'{pymolname} and polymer.protein and chain {chain}')
+            # print(fn)
+            cmd.save(fn, selection=f'{pymolname} and polymer.protein and chain {chain}')
         cmd.delete(pymolname)
 
 
