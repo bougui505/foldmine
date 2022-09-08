@@ -43,6 +43,7 @@ from torch_geometric.nn import GCNConv, RGCNConv
 
 import BLASTloader
 
+
 class ProteinGraphModel(torch.nn.Module):
     """
     >>> seed = torch.manual_seed(42)
@@ -60,8 +61,11 @@ class ProteinGraphModel(torch.nn.Module):
     >>> out.shape
     torch.Size([154, 512])
     """
-
-    def __init__(self, in_channels=20, num_relations=6, hidden_dims=(256, 256), latent_dim=512,
+    def __init__(self,
+                 in_channels=20,
+                 num_relations=6,
+                 hidden_dims=(256, 256),
+                 latent_dim=512,
                  normalized_latent_space=True):
         super().__init__()
         self.normalized_latent_space = normalized_latent_space
@@ -71,15 +75,16 @@ class ProteinGraphModel(torch.nn.Module):
         all_dims = in_channels, *hidden_dims, latent_dim
         self.convs = torch.nn.ModuleList()
         for prev, next in zip(all_dims, all_dims[1:]):
-            self.convs.append(RGCNConv(prev, next, num_relations=num_relations))
+            self.convs.append(RGCNConv(prev, next, num_relations=num_relations, num_bases=num_relations // 2))
             # self.convs.append(GCNConv(prev, next))
 
     def forward(self, data):
         x = data.x
-        for conv in self.convs:
-            x = conv(x, edge_index = data.edge_index, edge_type=data.edge_type)
+        for i, conv in enumerate(self.convs):
+            x = conv(x, edge_index=data.edge_index, edge_type=data.edge_type)
             # x = conv(x, data.edge_index)
-            x = F.relu(x)
+            if not i == len(self.convs) - 1:
+                x = F.relu(x)
         x = torch.tanh(x)
         z = torch.max(x, dim=-2).values
         # normalized_z = z / torch.linalg.norm(z)

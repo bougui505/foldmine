@@ -76,7 +76,6 @@ def get_norm(nested_out):
     >>> get_norm(nested_out)
     tensor(..., grad_fn=<MeanBackward0>)
     """
-    tensor_list = [e[0] for e in nested_out]
     z_anchor_list = torch.cat([e[0] for e in nested_out], dim=0)  # torch.Size([4, 512])
     z_positive_list = torch.cat([e[1] for e in nested_out], dim=0)  # torch.Size([4, 512])
     z = torch.cat((z_anchor_list, z_positive_list), dim=0)  # torch.Size([8, 512])
@@ -115,8 +114,8 @@ def get_contrastive_loss(nested_out, tau=1., normalize=True, num_negative_anchor
         num_negative_anchors = len(nested_out)
 
     if normalize:
-        z_anchor_list = [pair[0] / torch.linalg.norm(pair[0], dim=1) for pair in nested_out]
-        z_positive_list = [pair[1] / torch.linalg.norm(pair[1], dim=1) for pair in nested_out]
+        z_anchor_list = [pair[0] / (torch.linalg.norm(pair[0], dim=1) + 1e-4) for pair in nested_out]
+        z_positive_list = [pair[1] / (torch.linalg.norm(pair[1], dim=1) + 1e-4) for pair in nested_out]
     else:
         z_anchor_list = [pair[0] for pair in nested_out]
         z_positive_list = [pair[1] for pair in nested_out]
@@ -140,7 +139,7 @@ def get_contrastive_loss(nested_out, tau=1., normalize=True, num_negative_anchor
         # log(f'num:{num}, den: {den}')
 
         # Create a loss term
-        loss -= torch.log((num + 1e-8) / (den + 1e-8))
+        loss -= torch.log(num + 1e-5) - torch.log(den + 1e-5)
 
     if n > 0:
         loss = loss / n
@@ -220,7 +219,7 @@ def train(
             bs = len(batch)
             nested_out = forward_batch(batch, model)
             norm = get_norm(nested_out)
-            norm_loss = 0.01 * (norm - 1) ** 2
+            norm_loss = 0.01 * (norm - 1)**2
             contrastive_loss = get_contrastive_loss(nested_out)
             loss = norm_loss + contrastive_loss
             loss.backward()
