@@ -47,10 +47,6 @@ import datetime
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
-def collate_fn(batch):
-    return batch
-
-
 def get_batch_test():
     """
     >>> batch = get_batch_test()
@@ -60,7 +56,8 @@ def get_batch_test():
     [(Data(), Data()), (Data(), Data()), (Data(edge_index=[2, 717], node_id=[154], num_nodes=154, x=[154, 20]), Data(edge_index=[2, ...], node_id=[...], num_nodes=..., x=[..., 20]))]
     """
     dataset = BLASTloader.PDBdataset()
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=3, shuffle=False, num_workers=4, collate_fn=collate_fn)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=3, shuffle=False, num_workers=4,
+                                             collate_fn=lambda x: x)
     for batch in dataloader:
         break
     return batch
@@ -70,34 +67,35 @@ def get_norm(nested_out):
     """
     >>> batch = get_batch_test()
     >>> model = encoder.ProteinGraphModel(latent_dim=512)
-    >>> out = forward_batch(batch, model)
+    >>> out = forward_batch_graph(batch, model)
     >>> [(z_full.shape, z_fragment.shape) for z_full, z_fragment in nested_out]
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
     >>> get_norm(nested_out)
     tensor(..., grad_fn=<MeanBackward0>)
     """
-    z_anchor_list = torch.cat([e[0] for e in nested_out], dim=0)  # torch.Size([4, 512])
-    z_positive_list = torch.cat([e[1] for e in nested_out], dim=0)  # torch.Size([4, 512])
-    z = torch.cat((z_anchor_list, z_positive_list), dim=0)  # torch.Size([8, 512])
+    import itertools
+    flattened_list = list(itertools.chain.from_iterable(nested_out))
+    z = torch.cat(flattened_list, dim=0)
     norms = torch.linalg.norm(z, dim=1)
     return norms.mean()
 
 
-def forward_batch(batch, model):
+def forward_batch_nested(batch, model):
     """
-    The goal is to make a separate inference on all graphs.
+    The goal is to make a separate inference on elements on which one can call model(x),
+    for a list of list of inputs.
     >>> batch = get_batch_test()
     >>> model = encoder.ProteinGraphModel()
-    >>> out = forward_batch(batch, model)
+    >>> out = forward_batch_graph(batch, model)
     >>> [(z_anchor.shape, z_positive.shape) for z_anchor, z_positive in nested_out]
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
     """
     nested_out = []
-    for anchor, positive in batch:
-        if anchor.x is not None and positive.x is not None:
-            z_anchor = model(anchor)
-            z_positive = model(positive)
-            nested_out.append((z_anchor, z_positive))
+    for distmat_list in batch:
+        homologs_encodings = list()
+        for distmat in distmat_list:
+            homologs_encodings.append(model(distmat))
+        nested_out.append(homologs_encodings)
     return nested_out
 
 
@@ -155,7 +153,7 @@ def load_model(filename, latent_dim=512):
     >>> gcn = load_model('models/gcn_test.pt')
     Loading GCN model
     >>> batch = get_batch_test()
-    >>> out = forward_batch(batch, gcn)
+    >>> out = forward_batch_graph(batch, gcn)
     >>> [(z_anchor.shape, z_positive.shape) for z_anchor, z_positive in out]
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
     """
@@ -177,19 +175,21 @@ def train(
         latent_dim=128,
         save_each_epoch=True,
         print_each=100,
+        homologs_file='data/homologs_foldseek.txt.gz',
+        num_workers=os.cpu_count(),
         save_each=30,  # in minutes
         modelfilename='models/sscl.pt'):
     """
     # >>> train(pdbpath='pdb', print_each=1, save_each_epoch=False, n_epochs=3, modelfilename='models/1.pt', batch_size=32)
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    dataset = BLASTloader.PDBdataset()
-    num_workers = os.cpu_count()
+    dataset = BLASTloader.PDBdataset(homologs_file=homologs_file)
+
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
                                              shuffle=True,
                                              num_workers=num_workers,
-                                             collate_fn=collate_fn)
+                                             collate_fn=lambda x: x)
     # dataiter = iter(dataloader)
 
     # Temporarily remove model loading for debugging
@@ -201,7 +201,10 @@ def train(
     #     log('GCN model')
     #     model = encoder.ProteinGraphModel(latent_dim=latent_dim, normalized_latent_space=False)
 
-    model = encoder.ProteinGraphModel(latent_dim=latent_dim, normalized_latent_space=False)
+    cnn_model = encoder.ProteinCNNModel()
+    model = encoder.ProteinGraphModel(in_channels=20 + cnn_model.latent_dim,
+                                      latent_dim=latent_dim,
+                                      normalized_latent_space=False)
     model = model.to(device)
     opt = torch.optim.Adam(model.parameters())
     save_model(model, modelfilename)
@@ -214,13 +217,31 @@ def train(
     for epoch in range(n_epochs):
         for batch in dataloader:
             step += 1
-            # batch = next(dataiter)
-            batch = [(e[0].to(device), e[1].to(device)) for e in batch if e is not None]
-            bs = len(batch)
-            nested_out = forward_batch(batch, model)
-            norm = get_norm(nested_out)
-            norm_loss = 0.01 * (norm - 1)**2
-            contrastive_loss = get_contrastive_loss(nested_out)
+
+            # Batch is a nested structures : a list of two lists of lists :
+            # Batch[0] is graph_list, distmat_list
+            # Filter the None, get distmat and encode residue local neighborhood with CNN
+            filtered_batch = [item for item in batch if item[1] is not None]
+            distmat_batch = [(distmat.to(device) for distmat in distmat_list) for (_, distmat_list) in filtered_batch]
+            nested_out_cnn = forward_batch_nested(distmat_batch, cnn_model)
+
+            # Now get graphs and populate residues with embeddings from the CNN.
+            graph_batch = list()
+            for i, (graph_list, _) in enumerate(filtered_batch):
+                homolog_graph_list = list()
+                for j, graph in enumerate(graph_list):
+                    graph.to(device)
+                    # TODO : ensure node ordering stays the same with pytorch geometric !
+                    graph.x = torch.cat((graph.x, nested_out_cnn[i][j]), dim=1)
+                    homolog_graph_list.append(graph)
+                    pass
+                graph_batch.append(homolog_graph_list)
+
+            bs = len(graph_batch)
+            nested_out_graph = forward_batch_nested(graph_batch, model)
+            norm = get_norm(nested_out_graph)
+            norm_loss = 0.01 * (norm - 1) ** 2
+            contrastive_loss = get_contrastive_loss(nested_out_graph)
             loss = norm_loss + contrastive_loss
             loss.backward()
             opt.step()
@@ -295,8 +316,12 @@ if __name__ == '__main__':
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
+    # train(homologs_file='data/homologs_decoy.txt.gz', num_workers=1)
+
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)
+
+
         sys.exit()
 
     if args.train:

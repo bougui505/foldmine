@@ -39,6 +39,7 @@ import os
 import logging
 import torch
 import torch.nn.functional as F
+import torch.nn as nn
 from torch_geometric.nn import GCNConv, RGCNConv
 
 import BLASTloader
@@ -61,6 +62,7 @@ class ProteinGraphModel(torch.nn.Module):
     >>> out.shape
     torch.Size([154, 512])
     """
+
     def __init__(self,
                  in_channels=20,
                  num_relations=6,
@@ -90,6 +92,51 @@ class ProteinGraphModel(torch.nn.Module):
         # normalized_z = z / torch.linalg.norm(z)
         return z[None, ...]
         # return z[None, ...], x
+
+
+class ProteinCNNModel(torch.nn.Module):
+    """
+    >>> seed = torch.manual_seed(42)
+    >>> dataset = BLASTloader.PDBdataset(homologs_file="data/homologs.txt.gz")
+    >>> g_anchor, g_positive = dataset.__getitem__(1000)
+    >>> g_anchor
+    Data(edge_index=[2, 558], node_id=[154], num_nodes=154, x=[154, 20])
+    >>> gcn = ProteinGraphModel()
+    >>> z = gcn(g_anchor)
+    >>> z.shape
+    torch.Size([1, 512])
+    >>> z, out = gcn(g_anchor, get_conv=True)
+    >>> z.shape
+    torch.Size([1, 512])
+    >>> out.shape
+    torch.Size([154, 512])
+    """
+
+    def __init__(self,
+                 hidden_dims=(256, 256),
+                 ):
+        super().__init__()
+        self.hidden_dims = hidden_dims
+        self.latent_dim = hidden_dims[-1]
+        all_dims = 1, *hidden_dims
+
+        self.convs = torch.nn.ModuleList()
+        for prev, next in zip(all_dims, all_dims[1:]):
+            self.convs.append(nn.Conv2d(prev, next, kernel_size=3, padding='same'))
+
+    def forward(self, distmat):
+        with torch.no_grad():
+            x = 1 - torch.sigmoid(distmat - 8)
+        for i, conv in enumerate(self.convs):
+            x = conv(x)
+            # x = conv(x, data.edge_index)
+            if not i == len(self.convs) - 1:
+                x = F.relu(x)
+        # The output is (n_channel, num_nodes, num_nodes) take the diag and transpose to get (num_nodes, n_channel)
+        # Use the diagonal term
+        x = torch.diagonal(x, dim1=-2, dim2=-1)
+        x = torch.tanh(x)
+        return x.T
 
 
 def log(msg):

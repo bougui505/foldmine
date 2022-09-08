@@ -59,8 +59,10 @@ class PDBdataset(torch.utils.data.Dataset):
     ...
     (Data(edge_index=[2, 728], node_id=[154], num_nodes=154, x=[154, 20]), ...)
     """
-    def __init__(self, homologs_file='data/homologs_foldseek.txt.gz'):
+
+    def __init__(self, homologs_file='data/homologs_foldseek.txt.gz', max_pos=1):
         self.hf = homologs_file
+        self.max_pos = max_pos
         self.mapping = self.get_mapping()
 
     def __len__(self):
@@ -78,23 +80,34 @@ class PDBdataset(torch.utils.data.Dataset):
         return mapping
 
     def __getitem__(self, index):
+        # Get a Scope40 chain and its homologs
         offset = self.mapping[index]
         with gzip.open(self.hf, 'r') as f:
             f.seek(offset)
             line = f.readline().decode()
         pdbs = line.split()
-        anchor = pdbs[0]
-        positive = np.random.choice(pdbs[1:])
+
+        # Create a shortlist of the anchor chain and some homologs
+        anchor = [pdbs[0]]
+        max_pos = min(self.max_pos, len(pdbs) - 1)
+        positives = list(np.random.choice(pdbs[1:], size=max_pos, replace=False))
+        to_embed = anchor + positives
+
+        # Get the graph and distmat representation for this shortlist
+        # TODO make a smarter error catching
+        graphs, distmats = list(), list()
         try:
-            g_anchor = protein.graph(pdbcode=anchor[:4], chain=anchor[5:])
-            g_positive = protein.graph(pdbcode=positive[:4], chain=positive[5:])
-        except Exception as e:  #  (ValueError, KeyError, FileNotFoundError):
+            for chain in to_embed:
+                graph, distmat = protein.graph(pdbcode=chain[:4], chain=chain[5:])
+                graphs.append(graph)
+                distmats.append(distmat)
+        except Exception as e:  # (ValueError, KeyError, FileNotFoundError):
             log(e)
-            log(f"Graphein error for {anchor}, {positive}")
+            log(f"Graphein error for {anchor}, {positives}")
             # Not a protein chain
-            g_anchor = torch_geometric.data.Data(x=None, edge_index=None)
-            g_positive = torch_geometric.data.Data(x=None, edge_index=None)
-        return g_anchor, g_positive
+            graphs = [torch_geometric.data.Data(x=None, edge_index=None)] * (max_pos + 1)
+            distmats = None
+        return graphs, distmats
 
 
 def log(msg):
@@ -127,6 +140,12 @@ if __name__ == '__main__':
     # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
+
+    dataset = PDBdataset('data/homologs_small.txt.gz')
+    for i, _ in enumerate(dataset):
+        pass
+        if i > 10:
+            break
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)

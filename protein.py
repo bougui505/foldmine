@@ -66,6 +66,7 @@ class GraphConfig:
     """
     Just a small class to encapsulate the graph encoding choices and to be able to json dump them.
     """
+
     def __init__(self, choices=('peptide_bond', 'distance', 'hbond'), distbins=(6, 8, 10, 12)):
         self.distbins = distbins
 
@@ -152,6 +153,14 @@ def graph(pdbcode, chain='all', doplot=False, graph_config=GraphConfig()):
     config = ProteinGraphConfig(**new_funcs)
     pdb_path = f"data/pdb_chainsplit/{pdbcode[1:3].upper()}/{pdbcode.upper()}_{chain}.pdb.gz"
     graphein_graph = construct_graph(config=config, pdb_path=pdb_path)
+
+    # When constructing the graph, graphein creates a 'graph' dictionnary field in the nx object.
+    # It computes a distmat when building the edges that is stored as a field of this graph
+    # This distmat is computed at a chosen granularity from G.graph["pdb_df"], in which we get the
+    # coordinates of the residues, ordered by sequence.
+    distmat = graphein_graph.graph["dist_mat"].values[None, ...]
+    distmat = torch.from_numpy(distmat).float()
+
     if doplot:
         p = plotly_protein_structure_graph(graphein_graph,
                                            colour_edges_by="kind",
@@ -164,7 +173,7 @@ def graph(pdbcode, chain='all', doplot=False, graph_config=GraphConfig()):
     pyg_graph = graph_config.graphein_to_pyg(graphein_graph)
     # Now g contains all attributes as general graph ids. One needs to make it node features and edge types.
     # Data(edge_index=[2, 1867], node_id=[154], amino_acid_one_hot=[154], kind=[1867], bindist=[1867], num_nodes=154)
-    return pyg_graph
+    return pyg_graph, distmat
 
 
 def log(msg):
@@ -199,6 +208,8 @@ if __name__ == '__main__':
     parser.add_argument('--chain', help='Chain to compute the graph on')
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
+
+    # g = graph("1ycr", chain="A", doplot=False)
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)
