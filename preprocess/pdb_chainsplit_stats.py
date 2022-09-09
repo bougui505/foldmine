@@ -42,6 +42,7 @@ from pymol import cmd
 from misc import randomgen
 from misc.pytorch import torchify
 import tqdm
+import os
 
 
 def collate_fn(batch):
@@ -120,7 +121,11 @@ if __name__ == '__main__':
         sys.exit()
 
     dataset = PDBdataset()
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=False, num_workers=4, collate_fn=collate_fn)
+    dataloader = torch.utils.data.DataLoader(dataset,
+                                             batch_size=1,
+                                             shuffle=False,
+                                             num_workers=os.cpu_count(),
+                                             collate_fn=collate_fn)
     pbar = tqdm.tqdm(total=len(dataloader))
     with open('pdb_chainsplit_nres.txt', 'w') as outfile:
         for i, out in enumerate(dataloader):
