@@ -61,7 +61,7 @@ class PDBdataset(torch.utils.data.Dataset):
     (Data(edge_index=[2, 728], node_id=[154], num_nodes=154, x=[154, 20]), ...)
     """
 
-    def __init__(self, homologs_file='data/homologs_foldseek.txt.gz', max_pos=1):
+    def __init__(self, homologs_file='data/homologs_foldseek.txt.gz', max_pos=2):
         self.hf = homologs_file
         self.max_pos = max_pos
         self.mapping = self.get_mapping()
@@ -87,27 +87,49 @@ class PDBdataset(torch.utils.data.Dataset):
             line = f.readline().decode()
         pdbs = line.split()
 
-        # Create a shortlist of the anchor chain and some homologs
-        anchor = [pdbs[0]]
+        min_pos = 1
         max_pos = min(self.max_pos, len(pdbs) - 1)
-        positives = list(np.random.choice(pdbs[1:], size=max_pos, replace=False))
-        to_embed = anchor + positives
-
-        # Get the graph and distmat representation for this shortlist
-        # TODO make a smarter error catching
-        graphs, distmats = list(), list()
+        successful_positives = 0
+        anchor = pdbs[0]
+        chains = [anchor]
+        positives = pdbs[1:]
+        np.random.shuffle(positives)
+        # First get the anchor. If it fails, just drop this system.
         try:
-            for chain in to_embed:
-                graph, distmat = self.graph_builder.build_graph(pdbcode=chain[:4], chain=chain[5:])
-                graphs.append(graph)
-                distmats.append(distmat)
+            assert max_pos > min_pos
+            graph, distmat = self.graph_builder.build_graph(pdbcode=anchor[:4], chain=anchor[5:])
+            graphs, distmats = [graph], [distmat]
         except Exception as e:  # (ValueError, KeyError, FileNotFoundError):
             # Often a modified residue
+            msg = f"Graphein error for the anchor : {anchor}"
             log(e)
-            log(f"Graphein error for {anchor}, {positives}")
-            graphs = [torch_geometric.data.Data(x=None, edge_index=None)] * (max_pos + 1)
-            distmats = None
-        return graphs, distmats
+            log(msg)
+            return chains, None, None
+
+        # Now we will try getting as many positives as possible.
+        # Get the graph and distmat representation for this shortlist
+        # If we reach max system, we stop.
+        for chain in positives:
+            if successful_positives > max_pos:
+                break
+            try:
+                graph, distmat = self.graph_builder.build_graph(pdbcode=chain[:4], chain=chain[5:])
+                chains.append(chain)
+                graphs.append(graph)
+                distmats.append(distmat)
+                successful_positives += 1
+            except Exception as e:  # (ValueError, KeyError, FileNotFoundError):
+                # Often a modified residue
+                msg = f"Graphein error for {chain}"
+                log(e)
+                log(msg)
+        # If we don't have enough, we log and return None
+        if len(graphs) < min_pos + 1:
+            msg = f'Failed getting enough  for : {pdbs}'
+            print(msg)
+            log(msg)
+            return chains, None, None
+        return chains, graphs, distmats
 
 
 def get_batch_test():
