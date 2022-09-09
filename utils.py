@@ -38,6 +38,8 @@
 
 import time
 import datetime
+import logging
+import torch
 
 
 class ETA(object):
@@ -53,6 +55,7 @@ class ETA(object):
     0:00:01.00...
     0:00:00
     """
+
     def __init__(self, total_steps):
         self.total_steps = total_steps
         self.step = 0
@@ -77,20 +80,23 @@ def log(msg):
         pass
 
 
+def load_model(filename, model):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    model.load_state_dict(torch.load(filename, map_location=torch.device(device)))
+    model.eval()
+    return model
+
+
+def save_model(model, filename):
+    torch.save(model.state_dict(), filename)
+
+
 if __name__ == '__main__':
     import sys
     import doctest
     import argparse
-    # ### UNCOMMENT FOR LOGGING ####
-    # import os
-    # import logging
-    # logfilename = os.path.splitext(os.path.basename(__file__))[0] + '.log'
-    # logging.basicConfig(filename=logfilename, level=logging.INFO, format='%(asctime)s: %(message)s')
-    # logging.info(f"################ Starting {__file__} ################")
-    # ### ##################### ####
-    # argparse.ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=[], formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True)
+
     parser = argparse.ArgumentParser(description='')
-    # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('-a', '--arg1')
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()

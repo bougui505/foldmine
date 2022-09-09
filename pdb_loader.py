@@ -35,16 +35,17 @@
 #  This program is free software: you can redistribute it and/or modify     #
 #                                                                           #
 #############################################################################
-import os
 import gzip
 import logging
 import numpy as np
 import torch
 import torch_geometric.data
 
+from utils import log
+
 import protein
 
-logfilename = os.path.splitext(os.path.basename(__file__))[0] + '.log'
+logfilename = 'logs/loader.log'
 logging.basicConfig(filename=logfilename, level=logging.INFO, format='%(asctime)s: %(message)s')
 logging.info(f"################ Starting {__file__} ################")
 
@@ -64,11 +65,10 @@ class PDBdataset(torch.utils.data.Dataset):
         self.hf = homologs_file
         self.max_pos = max_pos
         self.mapping = self.get_mapping()
+        self.graph_builder = protein.GraphBuilder()
 
     def __len__(self):
-        with gzip.open(self.hf, 'r') as f:
-            nx = sum(1 for line in f)
-        return nx
+        return len(self.mapping)
 
     def get_mapping(self):
         with gzip.open(self.hf, 'r') as f:
@@ -98,29 +98,32 @@ class PDBdataset(torch.utils.data.Dataset):
         graphs, distmats = list(), list()
         try:
             for chain in to_embed:
-                graph, distmat = protein.graph(pdbcode=chain[:4], chain=chain[5:])
+                graph, distmat = self.graph_builder.build_graph(pdbcode=chain[:4], chain=chain[5:])
                 graphs.append(graph)
                 distmats.append(distmat)
         except Exception as e:  # (ValueError, KeyError, FileNotFoundError):
+            # Often a modified residue
             log(e)
             log(f"Graphein error for {anchor}, {positives}")
-            # Not a protein chain
             graphs = [torch_geometric.data.Data(x=None, edge_index=None)] * (max_pos + 1)
             distmats = None
         return graphs, distmats
 
 
-def log(msg):
-    try:
-        logging.info(msg)
-    except NameError:
-        pass
-
-
-def get_script_dir():
-    scriptpath = os.path.realpath(__file__)
-    scriptdir = os.path.dirname(scriptpath)
-    return scriptdir
+def get_batch_test():
+    """
+    >>> batch = get_batch_test()
+    >>> len(batch)
+    3
+    >>> batch
+    [(Data(), Data()), (Data(), Data()), (Data(edge_index=[2, 717], node_id=[154], num_nodes=154, x=[154, 20]), Data(edge_index=[2, ...], node_id=[...], num_nodes=..., x=[..., 20]))]
+    """
+    dataset = PDBdataset()
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=3, shuffle=False, num_workers=4,
+                                             collate_fn=lambda x: x)
+    for batch in dataloader:
+        break
+    return batch
 
 
 if __name__ == '__main__':
@@ -128,24 +131,20 @@ if __name__ == '__main__':
     import doctest
     import argparse
 
-    # ### UNCOMMENT FOR LOGGING ####
-    # import os
-    # import logging
-    # logfilename = os.path.splitext(os.path.basename(__file__))[0] + '.log'
-    # logging.basicConfig(filename=logfilename, level=logging.INFO, format='%(asctime)s: %(message)s')
-    # logging.info(f"################ Starting {__file__} ################")
-    # ### ##################### ####
-    # argparse.ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=[], formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True)
     parser = argparse.ArgumentParser(description='')
-    # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
-    dataset = PDBdataset('data/homologs_small.txt.gz')
-    for i, _ in enumerate(dataset):
-        pass
-        if i > 10:
-            break
+    # dataset = PDBdataset('data/homologs_decoy.txt.gz')
+    # dataset = torch.utils.data.DataLoader(dataset,
+    #                                       batch_size=1,
+    #                                       shuffle=False,
+    #                                       num_workers=0,
+    #                                       collate_fn=lambda x: x)
+    # for i, _ in enumerate(dataset):
+    #     pass
+    #     if i > 10:
+    #         break
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)

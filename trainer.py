@@ -36,38 +36,23 @@
 #                                                                           #
 #############################################################################
 import os
-import BLASTloader
-import torch
-import encoder
-import time
-from utils import ETA
 import datetime
+import torch
+import time
+
+import pdb_loader
+import encoder
+import utils
 
 # See: https://discuss.pytorch.org/t/runtimeerror-received-0-items-of-ancdata/4999
 torch.multiprocessing.set_sharing_strategy('file_system')
 
 
-def get_batch_test():
-    """
-    >>> batch = get_batch_test()
-    >>> len(batch)
-    3
-    >>> batch
-    [(Data(), Data()), (Data(), Data()), (Data(edge_index=[2, 717], node_id=[154], num_nodes=154, x=[154, 20]), Data(edge_index=[2, ...], node_id=[...], num_nodes=..., x=[..., 20]))]
-    """
-    dataset = BLASTloader.PDBdataset()
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=3, shuffle=False, num_workers=4,
-                                             collate_fn=lambda x: x)
-    for batch in dataloader:
-        break
-    return batch
-
-
 def get_norm(nested_out):
     """
-    >>> batch = get_batch_test()
+    >>> batch = pdb_loader.get_batch_test()
     >>> model = encoder.ProteinGraphModel(latent_dim=512)
-    >>> out = forward_batch_graph(batch, model)
+    >>> out = forward_batch_nested(batch, model)
     >>> [(z_full.shape, z_fragment.shape) for z_full, z_fragment in nested_out]
     [(torch.Size([1, 512]), torch.Size([1, 512]))]
     >>> get_norm(nested_out)
@@ -146,29 +131,6 @@ def get_contrastive_loss(nested_out, tau=1., normalize=True, num_negative_anchor
     return loss
 
 
-def load_model(filename, latent_dim=512):
-    """
-    >>> model = encoder.ProteinGraphModel()
-    >>> torch.save(model.state_dict(), 'models/gcn_test.pt')
-    >>> gcn = load_model('models/gcn_test.pt')
-    Loading GCN model
-    >>> batch = get_batch_test()
-    >>> out = forward_batch_graph(batch, gcn)
-    >>> [(z_anchor.shape, z_positive.shape) for z_anchor, z_positive in out]
-    [(torch.Size([1, 512]), torch.Size([1, 512]))]
-    """
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = encoder.ProteinGraphModel(latent_dim=latent_dim)
-    model.load_state_dict(torch.load(filename, map_location=torch.device(device)))
-    print('Loading GCN model')
-    model.eval()
-    return model
-
-
-def save_model(model, filename):
-    torch.save(model.state_dict(), filename)
-
-
 def train(
         batch_size=4,
         n_epochs=20,
@@ -178,21 +140,15 @@ def train(
         homologs_file='data/homologs_foldseek.txt.gz',
         num_workers=os.cpu_count(),
         save_each=30,  # in minutes
-        modelfilename='models/sscl.pt'):
-    """
-    # >>> train(pdbpath='pdb', print_each=1, save_each_epoch=False, n_epochs=3, modelfilename='models/1.pt', batch_size=32)
-    """
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    dataset = BLASTloader.PDBdataset(homologs_file=homologs_file)
-
+        modelfilename='models/sscl.pt',
+        device='cuda' if torch.cuda.is_available() else 'cpu'):
+    dataset = pdb_loader.PDBdataset(homologs_file=homologs_file)
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=batch_size,
                                              shuffle=True,
                                              num_workers=num_workers,
                                              collate_fn=lambda x: x)
-    # dataiter = iter(dataloader)
 
-    # Temporarily remove model loading for debugging
     # if modelfilename is not None and os.path.exists(modelfilename):
     #     log(f'# Loading model from {modelfilename}')
     #     model = load_model(filename=modelfilename, latent_dim=latent_dim)
@@ -202,17 +158,18 @@ def train(
     #     model = encoder.ProteinGraphModel(latent_dim=latent_dim, normalized_latent_space=False)
 
     cnn_model = encoder.ProteinCNNModel()
-    model = encoder.ProteinGraphModel(in_channels=20 + cnn_model.latent_dim,
-                                      latent_dim=latent_dim,
-                                      normalized_latent_space=False)
-    model = model.to(device)
-    opt = torch.optim.Adam(model.parameters())
-    save_model(model, modelfilename)
+    graph_model = encoder.ProteinGraphModel(in_channels=20 + cnn_model.latent_dim,
+                                            latent_dim=latent_dim,
+                                            normalized_latent_space=False)
+    wrapper_model = encoder.WrapperModel(cnn_model, graph_model)
+    wrapper_model = wrapper_model.to(device)
+    opt = torch.optim.Adam(wrapper_model.parameters())
+    utils.save_model(wrapper_model, modelfilename)
 
     t_0 = time.time()
     step = 0
     total_steps = n_epochs * len(dataloader)
-    eta = ETA(total_steps=total_steps)
+    eta = utils.ETA(total_steps=total_steps)
     loss = None
     for epoch in range(n_epochs):
         for batch in dataloader:
@@ -231,14 +188,12 @@ def train(
                 homolog_graph_list = list()
                 for j, graph in enumerate(graph_list):
                     graph.to(device)
-                    # TODO : ensure node ordering stays the same with pytorch geometric !
                     graph.x = torch.cat((graph.x, nested_out_cnn[i][j]), dim=1)
                     homolog_graph_list.append(graph)
-                    pass
                 graph_batch.append(homolog_graph_list)
 
             bs = len(graph_batch)
-            nested_out_graph = forward_batch_nested(graph_batch, model)
+            nested_out_graph = forward_batch_nested(graph_batch, graph_model)
             norm = get_norm(nested_out_graph)
             norm_loss = 0.01 * (norm - 1) ** 2
             contrastive_loss = get_contrastive_loss(nested_out_graph)
@@ -249,7 +204,7 @@ def train(
 
             if (time.time() - t_0) / 60 >= save_each:
                 t_0 = time.time()
-                save_model(model, modelfilename)
+                utils.save_model(graph_model, modelfilename)
 
             if not step % print_each:
                 eta_val = eta(step)
@@ -257,41 +212,23 @@ def train(
                 last_saved = str(datetime.timedelta(seconds=last_saved))
                 print_msg = f"epoch: {epoch + 1}|step: {step}|loss: {loss:.4f}|norm: {norm:.4f}|bs: {bs}|last_saved: {last_saved}| eta: {eta_val}"
                 print(print_msg)
-                log(print_msg)
-        # except StopIteration:
-        #     dataiter = iter(dataloader)
-        #     epoch += 1
+                utils.log(print_msg)
         if save_each_epoch:
             t_0 = time.time()
-            save_model(model, modelfilename)
-
-
-def log(msg):
-    try:
-        logging.info(msg)
-    except NameError:
-        pass
-
-
-def GetScriptDir():
-    scriptpath = os.path.realpath(__file__)
-    scriptdir = os.path.dirname(scriptpath)
-    return scriptdir
+            utils.save_model(graph_model, modelfilename)
 
 
 if __name__ == '__main__':
     import sys
     import doctest
     import argparse
-    # ### UNCOMMENT FOR LOGGING ####
+
+    # See: https://stackoverflow.com/a/13839732/1679629
     import logging
 
     logger = logging.getLogger()
     logger.setLevel(level=logging.DEBUG)
-    logfilename = os.path.splitext(os.path.basename(__file__))[0] + '.log'
-    # logging.basicConfig(filename=logfilename, level=logging.INFO, format='%(asctime)s: %(message)s')
-
-    # See: https://stackoverflow.com/a/13839732/1679629
+    logfilename = 'logs/trainer.log'
     fileh = logging.FileHandler(logfilename, 'a')
     formatter = logging.Formatter('%(asctime)s: %(message)s')
     fileh.setFormatter(formatter)
@@ -299,10 +236,8 @@ if __name__ == '__main__':
         logger.removeHandler(hdlr)
     logger.addHandler(fileh)  # set the new handler
     logging.info(f"################ Starting {__file__} ################")
-    # ### ##################### ####
-    # argparse.ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=[], formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True)
+
     parser = argparse.ArgumentParser(description='')
-    # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('--train', help='Train the SSCL', action='store_true')
     parser.add_argument('--epochs', type=int, default=10)
     parser.add_argument('--model', help='Model to load or for saving', metavar='model.pt', default='models/default.pt')
@@ -316,12 +251,10 @@ if __name__ == '__main__':
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
-    # train(homologs_file='data/homologs_decoy.txt.gz', num_workers=1)
+    train(homologs_file='data/homologs_decoy.txt.gz', num_workers=1)
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)
-
-
         sys.exit()
 
     if args.train:

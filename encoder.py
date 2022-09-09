@@ -35,20 +35,18 @@
 #  This program is free software: you can redistribute it and/or modify     #
 #                                                                           #
 #############################################################################
-import os
-import logging
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-from torch_geometric.nn import GCNConv, RGCNConv
+from torch_geometric.nn import RGCNConv
 
-import BLASTloader
+import pdb_loader
 
 
 class ProteinGraphModel(torch.nn.Module):
     """
     >>> seed = torch.manual_seed(42)
-    >>> dataset = BLASTloader.PDBdataset(homologs_file="data/homologs.txt.gz")
+    >>> dataset = pdb_loader.PDBdataset(homologs_file="data/homologs.txt.gz")
     >>> g_anchor, g_positive = dataset.__getitem__(1000)
     >>> g_anchor
     Data(edge_index=[2, 558], node_id=[154], num_nodes=154, x=[154, 20])
@@ -78,20 +76,16 @@ class ProteinGraphModel(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
         for prev, next in zip(all_dims, all_dims[1:]):
             self.convs.append(RGCNConv(prev, next, num_relations=num_relations, num_bases=num_relations // 2))
-            # self.convs.append(GCNConv(prev, next))
 
     def forward(self, data):
         x = data.x
         for i, conv in enumerate(self.convs):
             x = conv(x, edge_index=data.edge_index, edge_type=data.edge_type)
-            # x = conv(x, data.edge_index)
             if not i == len(self.convs) - 1:
                 x = F.relu(x)
         x = torch.tanh(x)
         z = torch.max(x, dim=-2).values
-        # normalized_z = z / torch.linalg.norm(z)
         return z[None, ...]
-        # return z[None, ...], x
 
 
 class ProteinCNNModel(torch.nn.Module):
@@ -125,17 +119,11 @@ class ProteinCNNModel(torch.nn.Module):
         return x.T
 
 
-def log(msg):
-    try:
-        logging.info(msg)
-    except NameError:
-        pass
-
-
-def GetScriptDir():
-    scriptpath = os.path.realpath(__file__)
-    scriptdir = os.path.dirname(scriptpath)
-    return scriptdir
+class WrapperModel(torch.nn.Module):
+    def __init__(self, cnn_model, graph_model):
+        super().__init__()
+        self.cnn_model = cnn_model
+        self.graph_model = graph_model
 
 
 if __name__ == '__main__':
@@ -146,18 +134,15 @@ if __name__ == '__main__':
     # ### UNCOMMENT FOR LOGGING ####
     # import os
     # import logging
-    # logfilename = os.path.splitext(os.path.basename(__file__))[0] + '.log'
+    # logfilename = 'logs/encoder.log'
     # logging.basicConfig(filename=logfilename, level=logging.INFO, format='%(asctime)s: %(message)s')
-    # logging.info(f"################ Starting {__file__} ################")
-    # ### ##################### ####
-    # argparse.ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=[], formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True)
+
     parser = argparse.ArgumentParser(description='')
-    # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
     seed = torch.manual_seed(42)
-    dataset = BLASTloader.PDBdataset(homologs_file="data/homologs.txt.gz")
+    dataset = pdb_loader.PDBdataset(homologs_file="data/homologs.txt.gz")
     g_anchor, g_positive = dataset.__getitem__(1000)
     print(g_anchor)
     model = ProteinGraphModel()

@@ -62,7 +62,7 @@ CHOICES = {
 }
 
 
-class GraphConfig:
+class GraphBuilder:
     """
     Just a small class to encapsulate the graph encoding choices and to be able to json dump them.
     """
@@ -84,6 +84,15 @@ class GraphConfig:
             self.num_edge_types += len(distbins)
             self.edge_creating_funcs['distance'] = lambda g: gp.add_distance_threshold(
                 g, long_interaction_threshold=2, threshold=max(distbins) - 0.01)
+
+        edge_construction_funcs = list(self.edge_creating_funcs.values())
+        new_funcs = {
+            "granularity": 'CA',
+            "keep_hets": [False],
+            "node_metadata_functions": [amino_acid_one_hot],
+            "edge_construction_functions": edge_construction_funcs,
+        }
+        self.config = ProteinGraphConfig(**new_funcs)
 
         self.format_convertor = GraphFormatConvertor("nx",
                                                      "pyg",
@@ -119,6 +128,9 @@ class GraphConfig:
         return graphein_graph
 
     def graphein_to_pyg(self, graphein_graph):
+        """
+        Graphein to pyg keeps the node ordering consistent.
+        """
         nx_graph = self.graphein_to_simple_nx(graphein_graph)
         pyg_graph = self.format_convertor(nx_graph)
 
@@ -130,89 +142,53 @@ class GraphConfig:
         return pyg_graph
 
 
-def graph(pdbcode, chain='all', doplot=False, graph_config=GraphConfig()):
-    """
-    >>> g = graph('1ycr', chain='A', doplot=False)
-    >>> g
-    Data(node_id=[85], edge_type=[963], num_nodes=85, x=[85, 20])
-    """
-    # Edges function
-    # gp.add_peptide_bonds, gp.add_hydrogen_bond_interactions, gp.add_disulfide_interactions,
-    # gp.add_ionic_interactions, gp.add_aromatic_interactions, gp.add_aromatic_sulphur_interactions,
-    # gp.add_cation_pi_interactions,
-    # edge_construction_funcs = [
-    #     lambda g: gp.add_distance_threshold(g, long_interaction_threshold=1, threshold=max(distbins) - 0.01),
-    #     # gp.add_distance_to_edges, => this is done by default...
-    #     # gp.add_peptide_bonds,
-    #     gp.add_hydrogen_bond_interactions
-    # ]
-    edge_construction_funcs = list(graph_config.edge_creating_funcs.values())
-    new_funcs = {
-        "granularity": 'CA',
-        "keep_hets": [False],
-        "node_metadata_functions": [amino_acid_one_hot],
-        "edge_construction_functions": edge_construction_funcs,
-    }
-    config = ProteinGraphConfig(**new_funcs)
-    pdb_path = f"data/pdb_chainsplit/{pdbcode[1:3].upper()}/{pdbcode.upper()}_{chain}.pdb.gz"
-    graphein_graph = construct_graph(config=config, pdb_path=pdb_path)
+    def build_graph(self, pdbcode, chain='all', doplot=False):
+        """
+        >>> g = graph('1ycr', chain='A', doplot=False)
+        >>> g
+        Data(node_id=[85], edge_type=[963], num_nodes=85, x=[85, 20])
+        """
+        pdb_path = f"data/pdb_chainsplit/{pdbcode[1:3].upper()}/{pdbcode.upper()}_{chain}.pdb.gz"
+        graphein_graph = construct_graph(config=self.config, pdb_path=pdb_path)
 
-    # When constructing the graph, graphein creates a 'graph' dictionnary field in the nx object.
-    # It computes a distmat when building the edges that is stored as a field of this graph
-    # This distmat is computed at a chosen granularity from G.graph["pdb_df"], in which we get the
-    # coordinates of the residues, ordered by sequence.
-    distmat = graphein_graph.graph["dist_mat"].values[None, ...]
-    distmat = torch.from_numpy(distmat).float()
+        # When constructing the graph, graphein creates a 'graph' dictionnary field in the nx object.
+        # It computes a distmat when building the edges that is stored as a field of this graph
+        # This distmat is computed at a chosen granularity from G.graph["pdb_df"], in which we get the
+        # coordinates of the residues, ordered by sequence.
+        distmat = graphein_graph.graph["dist_mat"].values[None, ...]
+        distmat = torch.from_numpy(distmat).float()
 
-    if doplot:
-        p = plotly_protein_structure_graph(graphein_graph,
-                                           colour_edges_by="kind",
-                                           colour_nodes_by="degree",
-                                           label_node_ids=False,
-                                           plot_title="Peptide backbone graph. Nodes coloured by degree.",
-                                           node_size_multiplier=1)
-        p.show()
+        if doplot:
+            p = plotly_protein_structure_graph(graphein_graph,
+                                               colour_edges_by="kind",
+                                               colour_nodes_by="degree",
+                                               label_node_ids=False,
+                                               plot_title="Peptide backbone graph. Nodes coloured by degree.",
+                                               node_size_multiplier=1)
+            p.show()
 
-    pyg_graph = graph_config.graphein_to_pyg(graphein_graph)
-    # Now g contains all attributes as general graph ids. One needs to make it node features and edge types.
-    # Data(edge_index=[2, 1867], node_id=[154], amino_acid_one_hot=[154], kind=[1867], bindist=[1867], num_nodes=154)
-    return pyg_graph, distmat
-
-
-def log(msg):
-    try:
-        logging.info(msg)
-    except NameError:
-        pass
-
-
-def GetScriptDir():
-    scriptpath = os.path.realpath(__file__)
-    scriptdir = os.path.dirname(scriptpath)
-    return scriptdir
+        pyg_graph = self.graphein_to_pyg(graphein_graph)
+        return pyg_graph, distmat
 
 
 if __name__ == '__main__':
     import sys
-    import doctest
     import argparse
-    # ### UNCOMMENT FOR LOGGING ####
-    # import os
+
+    import doctest
     import logging
 
-    logfilename = os.path.splitext(os.path.basename(__file__))[0] + '.log'
+    logfilename = 'logs/protein.log'
     logging.basicConfig(filename=logfilename, level=logging.INFO, format='%(asctime)s: %(message)s')
-    # logging.info(f"################ Starting {__file__} ################")
-    # ### ##################### ####
-    # argparse.ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=[], formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True)
+
     parser = argparse.ArgumentParser(description='')
-    # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('-p', '--pdb', help='Compute and plot the graph of the given PDB file')
     parser.add_argument('--chain', help='Chain to compute the graph on')
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
-    g = graph("1ycr", chain="A", doplot=False)
+    # graph_builder = GraphBuilder()
+    # graph_builder.build_graph("1ycr", chain="A", doplot=False)
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)
@@ -221,5 +197,6 @@ if __name__ == '__main__':
         if args.chain is None:
             print("Please, give a chain id using --chain option")
         else:
-            g = graph(args.pdb, chain=args.chain, doplot=False)
+            graph_builder = GraphBuilder()
+            g = graph_builder.build_graph(args.pdb, chain=args.chain, doplot=False)
             print(g)
