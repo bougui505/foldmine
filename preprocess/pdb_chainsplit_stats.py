@@ -87,7 +87,7 @@ class PDBdataset(torch.utils.data.Dataset):
     >>> name
     '/media/bougui/scratch/pdb/a9/pdb5a96.ent.gz'
     """
-    def __init__(self, pdbpath='pdb_chainsplit', selection='all', return_name=False):
+    def __init__(self, pdbpath='../data/pdb_chainsplit', selection='all', return_name=False):
         self.list_IDs = glob.glob(f'{pdbpath}/**/*.pdb.gz')
         self.return_name = return_name
         self.selection = selection
@@ -127,7 +127,7 @@ if __name__ == '__main__':
                                              num_workers=os.cpu_count(),
                                              collate_fn=collate_fn)
     pbar = tqdm.tqdm(total=len(dataloader))
-    with open('pdb_chainsplit_nres.txt', 'w') as outfile:
+    with open('../data/pdb_chainsplit_nres.txt', 'w') as outfile:
         for i, out in enumerate(dataloader):
             pdbfile, nres = out[0]
             outfile.write(f'{pdbfile} {nres}\n')
