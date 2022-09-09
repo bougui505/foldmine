@@ -178,13 +178,18 @@ def train(
             # Batch is a nested structures : a list of two lists of lists :
             # Batch[0] is graph_list, distmat_list
             # Filter the None, get distmat and encode residue local neighborhood with CNN
+            chains_batch = [item[0] for item in batch]
             filtered_batch = [item for item in batch if item[1] is not None]
-            distmat_batch = [(distmat.to(device) for distmat in distmat_list) for (_, distmat_list) in filtered_batch]
+            if len(filtered_batch) < 2:
+                print(f"Not enough data for {chains_batch}")
+                continue
+            distmat_batch = [(distmat.to(device) for distmat in distmat_list) for (_, _, distmat_list) in
+                             filtered_batch]
             nested_out_cnn = forward_batch_nested(distmat_batch, cnn_model)
 
             # Now get graphs and populate residues with embeddings from the CNN.
             graph_batch = list()
-            for i, (graph_list, _) in enumerate(filtered_batch):
+            for i, (_, graph_list, _) in enumerate(filtered_batch):
                 homolog_graph_list = list()
                 for j, graph in enumerate(graph_list):
                     graph.to(device)
@@ -251,7 +256,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
-    train(homologs_file='data/homologs_decoy.txt.gz', num_workers=1)
+    # train(homologs_file='data/homologs_decoy.txt.gz', num_workers=1)
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)

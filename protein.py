@@ -187,8 +187,11 @@ if __name__ == '__main__':
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
-    # graph_builder = GraphBuilder()
+    graph_builder = GraphBuilder()
     # graph_builder.build_graph("1ycr", chain="A", doplot=False)
+    # graph_builder.build_graph("2fyw", chain="A", doplot=False)
+    graph = graph_builder.build_graph("1aut", chain="L", doplot=False)
+    print(graph)
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)
