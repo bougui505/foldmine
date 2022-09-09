@@ -93,6 +93,9 @@ class GraphConfig:
         """
         graphein returns edges with 'kind' encoding edge type and 'distance'.
         One need to make this an 'edge_type' with just an int.
+
+        The 'kind' key is a set of all interactions between residues.
+        We want to keep only the first in edge_type_mapping and encode it with id.
         """
         # One hot encoding of distances using distbins argument
         for e in graphein_graph.edges(data=True):
@@ -209,7 +212,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
-    # g = graph("1ycr", chain="A", doplot=False)
+    g = graph("1ycr", chain="A", doplot=False)
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)

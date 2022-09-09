@@ -96,24 +96,11 @@ class ProteinGraphModel(torch.nn.Module):
 
 class ProteinCNNModel(torch.nn.Module):
     """
-    >>> seed = torch.manual_seed(42)
-    >>> dataset = BLASTloader.PDBdataset(homologs_file="data/homologs.txt.gz")
-    >>> g_anchor, g_positive = dataset.__getitem__(1000)
-    >>> g_anchor
-    Data(edge_index=[2, 558], node_id=[154], num_nodes=154, x=[154, 20])
-    >>> gcn = ProteinGraphModel()
-    >>> z = gcn(g_anchor)
-    >>> z.shape
-    torch.Size([1, 512])
-    >>> z, out = gcn(g_anchor, get_conv=True)
-    >>> z.shape
-    torch.Size([1, 512])
-    >>> out.shape
-    torch.Size([154, 512])
+    This encodes the geometry around each residue.
     """
 
     def __init__(self,
-                 hidden_dims=(256, 256),
+                 hidden_dims=(64, 128, 128, 256),
                  ):
         super().__init__()
         self.hidden_dims = hidden_dims
@@ -122,14 +109,13 @@ class ProteinCNNModel(torch.nn.Module):
 
         self.convs = torch.nn.ModuleList()
         for prev, next in zip(all_dims, all_dims[1:]):
-            self.convs.append(nn.Conv2d(prev, next, kernel_size=3, padding='same'))
+            self.convs.append(nn.Conv2d(prev, next, kernel_size=5, padding='same'))
 
     def forward(self, distmat):
         with torch.no_grad():
             x = 1 - torch.sigmoid(distmat - 8)
         for i, conv in enumerate(self.convs):
             x = conv(x)
-            # x = conv(x, data.edge_index)
             if not i == len(self.convs) - 1:
                 x = F.relu(x)
         # The output is (n_channel, num_nodes, num_nodes) take the diag and transpose to get (num_nodes, n_channel)
