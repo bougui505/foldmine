@@ -8,7 +8,12 @@ import os
 from pymol import cmd
 import requests
 import torch
+import tqdm
 import wget
+import sys
+
+sys.path.append('..')
+import protein
 
 
 # GET HOMOLOGS
@@ -17,7 +22,12 @@ def parse_blast(path_to_blast='blast_results.txt.gz',
                 parsed='../data/homologs.txt.gz',
                 remove_self=True):
     """
-    Should take a few minutes
+    The blast output format 6 starts with the two systems that got compared and include additional information.
+    The first one is contiguous (all 1ycr queries)...
+    We just go through the 2 million lines and when the first one changes,
+        we dump all its homologs as a line of 'parsed'
+
+    Should take a few minutes.
 
     @param path_to_blast:
     @param remove_self:
@@ -61,6 +71,10 @@ def parse_blast(path_to_blast='blast_results.txt.gz',
 # GET PROTEIN CHAINS
 
 def get_entitites_from_pdb():
+    """
+    This is simply a PDB Search request to obtain all PDB containing a protein chain.
+    @return:
+    """
     url = 'https://search.rcsb.org/rcsbsearch/v2/query?json={"query": {"type": "terminal","label": "text", ' \
           '"service": "text","parameters": {"attribute": "entity_poly.rcsb_entity_polymer_type","operator": ' \
           '"exact_match","negation": false,"value": "Protein"}},"request_options": {"return_all_hits": true},' \
@@ -77,6 +91,13 @@ def chunks(L, n):
 
 
 def get_chain_names(jsonfile_query='protein_list.json', nbatch=100):
+    """
+    Because of the two-step downloading process of the PDB, one needs to transform entity ids into their chain names.
+    We batch those requests to avoid having too long a URL while avoiding to get blacklisted from the PDB
+    @param jsonfile_query:
+    @param nbatch:
+    @return:
+    """
     jsonfile = open(jsonfile_query, 'r')
     data = json.loads(jsonfile.read())
     idlist = [i['identifier'] for i in data['result_set']]
@@ -96,6 +117,14 @@ def get_chain_names(jsonfile_query='protein_list.json', nbatch=100):
 
 
 def download_mmtf(protein_chains='protein_chains.txt', base_dir='../data/pdb_mmtf', redownload=False):
+    """
+    Download the PDB containing protein chains in the MMTF format.
+    The request has to be done one at a time, otherwise one needs to use an Apache server to decode the payload.
+    @param protein_chains:
+    @param base_dir:
+    @param redownload:
+    @return:
+    """
     with open(protein_chains, 'r') as protein_chains:
         for i, protchain in enumerate(protein_chains):
             if i > 3:
@@ -146,31 +175,144 @@ class Splitter(torch.utils.data.Dataset):
 
 
 def get_split_chains(outdir='../data/pdb_chainsplit', indir='../data/pdb_mmtf'):
+    """
+    Iterate over indir (whole mmtf pdb) and dump smaller pdbs split by chain
+    Careful, some PDB files are too big and will still be buggy.
+    However, we are stuck with the PDB format because of BioPandas.
+    @param outdir:
+    @param indir:
+    @return:
+    """
     splitter = Splitter(outdir=outdir, pdb_mmtf_path=indir)
     splitter = torch.utils.data.DataLoader(splitter, num_workers=os.cpu_count(), collate_fn=lambda x: x)
     for _ in splitter:
         pass
 
 
-def filter_homologs_subset(ids_to_keep='../data/foldseek_list.txt',
+# FILTER HOMOLOGS.TXT FILE BASED ON SCOPE40
+
+def get_mapping_scope40(index_file='../data/dir.des.scope.2.08-stable.txt'):
+    """
+    Get a mapping from filename to the chain they represent
+    @param index_file:
+    @return:
+    """
+    mapping = {}
+    with open(index_file, 'r') as index_file:
+        for line in index_file:
+            splitted_line = line.split()
+            if len(splitted_line) > 3 and not splitted_line[0] == "#" and not splitted_line[3] == '-':
+                filename = splitted_line[3]
+                pdb, chain = splitted_line[4], splitted_line[5].split(':')[0]
+                mapping[filename] = (pdb, chain)
+    return mapping
+
+
+def filter_homologs_subset(index_file='../data/dir.des.scope.2.08-stable.txt',
                            original_homologs='../data/homologs.txt.gz',
                            filtered_homologs='../data/homologs_foldseek.txt.gz'):
-    with open(ids_to_keep) as protfile:
-        protset = set()
-        for e in protfile.readlines():
-            pdb = e.strip()[5:9]
-            chain = e.strip()[9]
-            if chain == ".":
-                continue
-            protset.add(f'{pdb}_{chain}')
+    """
+    Subset a homolog file to keep only lines that have an anchor in ids_to_keep
+    @param ids_to_keep:
+    @param original_homologs:
+    @param filtered_homologs:
+    @return:
+    """
+    scope_mapping = get_mapping_scope40(index_file)
+    protset = set(['_'.join([pdb, chain]) for pdb, chain in scope_mapping.values()])
 
     with gzip.open(original_homologs, 'r') as homologs:
         with gzip.open(filtered_homologs, 'wt') as outfile:
-            for line in homologs.readlines():
+            lines = homologs.readlines()
+            for line in tqdm.tqdm(lines):
                 line = line.decode()
                 pdbchain = line.split()[0]
                 if pdbchain in protset:
                     outfile.write(line)
+
+
+# REMOVE BUGGY OR NONSENSICAL FILES OR HUGE SYSTEMS
+
+class FilterDataset(torch.utils.data.Dataset):
+    """
+    Just a dataset to go through a list of chains
+    """
+
+    def __init__(self, pdb_chain_list):
+        self.path_list = pdb_chain_list
+        self.graph_builder = protein.GraphBuilder()
+
+    def __len__(self):
+        return len(self.path_list)
+
+    def __getitem__(self, index):
+        # Get a Scope40 chain and its homologs
+        pdb_chain = self.path_list[index]
+        pdb, chain = pdb_chain.split('_')
+        try:
+            graph, distmat = self.graph_builder.build_graph(pdbcode=pdb, chain=chain)
+        except Exception as e:  # (ValueError, KeyError, FileNotFoundError):
+            # Often a modified residue
+            print(e)
+            return 0, pdb_chain, None
+        return 1, pdb_chain, distmat
+
+
+def ensure_loadable_and_small(homologs_file='../data/homologs_foldseek.txt.gz',
+                              homologs_file_clean='../data/homologs_foldseek_clean.txt.gz',
+                              max_res=600):
+    """
+    Filter out lines of the homolog file that will raise errors.
+
+    - Iterate through the homolog file to get a set of used protein chains
+    - Loop over these chains and try to load them. Put the successful and not too big ones in a set
+    - Loop over the homolog file once again, removing buggy anchors lines and lines without enough admissible homologs.
+    @param homologs_file:
+    @param homologs_file_clean:
+    @param max_res:
+    @return:
+    """
+    unique_chains = set()
+    with gzip.open(homologs_file, 'r') as homologs_file:
+        for line in homologs_file:
+            all_pdbs_line = line.decode().strip().split()
+            unique_chains.update(all_pdbs_line)
+    dataset = FilterDataset(list(unique_chains))
+    dataloader = torch.utils.data.DataLoader(dataset,
+                                             batch_size=1,
+                                             shuffle=False,
+                                             num_workers=os.cpu_count(),
+                                             collate_fn=lambda x: x)
+    pbar = tqdm.tqdm(total=len(dataloader))
+    admissible = set()
+    for i, out in enumerate(dataloader):
+        failed, chain_name, distmat = out[0]
+        if not failed:
+            print(distmat.shape)
+            nres = len(distmat)
+            if nres < max_res:
+                admissible.add(chain_name)
+        pbar.update(1)
+        # debug
+        if i > 10:
+            break
+    print(admissible)
+    with gzip.open(homologs_file, 'r') as homologs_file:
+        with gzip.open(homologs_file_clean, 'wt') as clean_homologs_file:
+            for line in homologs_file:
+                all_pdbs_line = line.decode().strip().split()
+
+                # The reference should be loadable
+                anchor = all_pdbs_line[0]
+                if not anchor in admissible:
+                    continue
+
+                # Then the homologs are filtered to be admissible
+                # If sufficiently many remain, we write that in the clean file
+                admissible_homologs = [pdb_chain for pdb_chain in all_pdbs_line[1:] if pdb_chain in admissible]
+                if len(admissible_homologs) > 0:
+                    clean_line = ' '.join([anchor] + admissible_homologs)
+                    clean_homologs_file.write(clean_line)
 
 
 if __name__ == '__main__':
@@ -186,8 +328,10 @@ if __name__ == '__main__':
     parser.add_argument('--all', action='store_true')
     args = parser.parse_args()
 
+    # ensure_loadable_and_small()
     # Required files to run this preprocessing :
     # path to blast output : 'blast_results.txt.gz'
+    # path to scope specifications : '../data/dir.des.scope.2.08-stable.txt'
     # path to scope ids : '../data/foldseek_list.txt'
 
     # Get all homologs
