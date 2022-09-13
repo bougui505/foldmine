@@ -258,8 +258,8 @@ class FilterDataset(torch.utils.data.Dataset):
         return 1, pdb_chain, distmat
 
 
-def ensure_loadable_and_small(homologs_file='../data/homologs_foldseek.txt.gz',
-                              homologs_file_clean='../data/homologs_foldseek_clean.txt.gz',
+def ensure_loadable_and_small(original_homologs_path='../data/homologs_foldseek.txt.gz',
+                              clean_homologs_path='../data/homologs_foldseek_clean.txt.gz',
                               max_res=600):
     """
     Filter out lines of the homolog file that will raise errors.
@@ -267,14 +267,14 @@ def ensure_loadable_and_small(homologs_file='../data/homologs_foldseek.txt.gz',
     - Iterate through the homolog file to get a set of used protein chains
     - Loop over these chains and try to load them. Put the successful and not too big ones in a set
     - Loop over the homolog file once again, removing buggy anchors lines and lines without enough admissible homologs.
-    @param homologs_file:
-    @param homologs_file_clean:
+    @param original_homologs_path:
+    @param clean_homologs_path:
     @param max_res:
     @return:
     """
     unique_chains = set()
-    with gzip.open(homologs_file, 'r') as homologs_file:
-        for line in homologs_file:
+    with gzip.open(original_homologs_path, 'r') as original_homologs_file:
+        for line in original_homologs_file:
             all_pdbs_line = line.decode().strip().split()
             unique_chains.update(all_pdbs_line)
     dataset = FilterDataset(list(unique_chains))
@@ -286,20 +286,15 @@ def ensure_loadable_and_small(homologs_file='../data/homologs_foldseek.txt.gz',
     pbar = tqdm.tqdm(total=len(dataloader))
     admissible = set()
     for i, out in enumerate(dataloader):
-        failed, chain_name, distmat = out[0]
-        if not failed:
-            print(distmat.shape)
+        success, chain_name, distmat = out[0]
+        if success:
             nres = len(distmat)
             if nres < max_res:
                 admissible.add(chain_name)
         pbar.update(1)
-        # debug
-        if i > 10:
-            break
-    print(admissible)
-    with gzip.open(homologs_file, 'r') as homologs_file:
-        with gzip.open(homologs_file_clean, 'wt') as clean_homologs_file:
-            for line in homologs_file:
+    with gzip.open(original_homologs_path, 'r') as original_homologs_file:
+        with gzip.open(clean_homologs_path, 'wt') as clean_homologs_file:
+            for line in original_homologs_file:
                 all_pdbs_line = line.decode().strip().split()
 
                 # The reference should be loadable
@@ -311,7 +306,7 @@ def ensure_loadable_and_small(homologs_file='../data/homologs_foldseek.txt.gz',
                 # If sufficiently many remain, we write that in the clean file
                 admissible_homologs = [pdb_chain for pdb_chain in all_pdbs_line[1:] if pdb_chain in admissible]
                 if len(admissible_homologs) > 0:
-                    clean_line = ' '.join([anchor] + admissible_homologs)
+                    clean_line = ' '.join([anchor] + admissible_homologs) + '\n'
                     clean_homologs_file.write(clean_line)
 
 
@@ -328,11 +323,9 @@ if __name__ == '__main__':
     parser.add_argument('--all', action='store_true')
     args = parser.parse_args()
 
-    # ensure_loadable_and_small()
     # Required files to run this preprocessing :
     # path to blast output : 'blast_results.txt.gz'
     # path to scope specifications : '../data/dir.des.scope.2.08-stable.txt'
-    # path to scope ids : '../data/foldseek_list.txt'
 
     # Get all homologs
     if args.all or args.parse_blast:
@@ -354,3 +347,8 @@ if __name__ == '__main__':
     # Filter to keep only the proteins present in SCOPe40
     if args.all or args.filter:
         filter_homologs_subset()
+
+    # Filter to discard systems graphein cannot handle (mostly because of modified amino acids) and that are too big
+    if args.all or args.filter:
+        ensure_loadable_and_small(max_res=600)
+
