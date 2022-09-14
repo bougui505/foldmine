@@ -159,6 +159,7 @@ def train(
 
     cnn_model = encoder.ProteinCNNModel()
     graph_model = encoder.ProteinGraphModel(in_channels=20 + cnn_model.latent_dim,
+                                            num_relations=dataset.graph_builder.num_edge_types,
                                             latent_dim=latent_dim,
                                             normalized_latent_space=False)
     wrapper_model = encoder.WrapperModel(cnn_model, graph_model)

@@ -67,9 +67,16 @@ class GraphBuilder:
     Just a small class to encapsulate the graph encoding choices and to be able to json dump them.
     """
 
-    def __init__(self, choices=('peptide_bond', 'distance', 'hbond'), distbins=(6, 8, 10, 12)):
+    def __init__(self, choices='all', distbins=(6, 8, 10, 12)):
+        """
+
+        @param choices: Can be 'all' or an iterable with choices such as ('peptide_bond', 'distance', 'hbond')
+        @param distbins:
+        """
         self.distbins = distbins
 
+        all_choices = ('peptide_bond', 'hbond', 'aromatic', 'aromatic_sulphur', 'ionic', 'pi', 'disulfide', 'distance')
+        choices = all_choices if choices == 'all' else choices
         # Iterate through CHOICES to keep a consistent ordering and check keys
         self.edge_creating_funcs = {}
         for name, func in CHOICES.items():
@@ -187,11 +194,17 @@ if __name__ == '__main__':
     parser.add_argument('--test', help='Test the code', action='store_true')
     args = parser.parse_args()
 
-    graph_builder = GraphBuilder()
-    # graph_builder.build_graph("1ycr", chain="A", doplot=False)
-    # graph_builder.build_graph("2fyw", chain="A", doplot=False)
-    graph = graph_builder.build_graph("1aut", chain="L", doplot=False)
-    print(graph)
+    # graph_builder = GraphBuilder(choices=('peptide_bond', 'distance', 'hbond'))
+    graph_builder = GraphBuilder(choices='all')
+
+    graph, distmat = graph_builder.build_graph("6oge", chain="B", doplot=False)
+    # graph, distmat = graph_builder.build_graph("4f5s", chain="A", doplot=False)
+    # graph, distmat = graph_builder.build_graph("1ycr", chain="A", doplot=False)
+    # graph, distmat = graph_builder.build_graph("2fyw", chain="A", doplot=False)
+    # graph, distmat = graph_builder.build_graph("1aut", chain="L", doplot=False)
+    # etypes = graph.edge_type.numpy()
+    # np_types = np.asarray(etypes)
+    # print(np.unique(np_types))
 
     if args.test:
         doctest.testmod(optionflags=doctest.ELLIPSIS | doctest.REPORT_ONLY_FIRST_FAILURE)
