@@ -210,10 +210,10 @@ def get_mapping_scope40(index_file='../data/dir.des.scope.2.08-stable.txt'):
     return mapping
 
 
-def filter_homologs_subset(scope40_index_file='../data/dir.des.scope.2.01-stable.txt',
-                           scope40_list='../data/scope40_2.01_pdblist.txt',
-                           original_homologs='../data/homologs.txt.gz',
-                           filtered_homologs='../data/homologs_scope40.txt.gz'):
+def subset_homologs(scope40_index_file='../data/dir.des.scope.2.01-stable.txt',
+                    scope40_list='../data/scope40_2.01_pdblist.txt',
+                    original_homologs='../data/homologs.txt.gz',
+                    filtered_homologs='../data/homologs_scope40.txt.gz'):
     """
     Subset a homolog file to keep only lines that have an anchor in ids_to_keep
     @param ids_to_keep:
@@ -328,6 +328,7 @@ if __name__ == '__main__':
     parser.add_argument('--query_pdb', action='store_true')
     parser.add_argument('--download_mmtf', action='store_true')
     parser.add_argument('--split', action='store_true')
+    parser.add_argument('--subset', action='store_true')
     parser.add_argument('--filter', action='store_true')
     parser.add_argument('--all', action='store_true')
     args = parser.parse_args()
@@ -355,8 +356,8 @@ if __name__ == '__main__':
         get_split_chains()
 
     # Filter to keep only the proteins present in SCOPe40
-    if args.all or args.filter:
-        filter_homologs_subset()
+    if args.all or args.subset:
+        subset_homologs()
 
     # Filter to discard systems graphein cannot handle (mostly because of modified amino acids) and that are too big
     if args.all or args.filter:
