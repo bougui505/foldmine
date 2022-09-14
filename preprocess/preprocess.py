@@ -5,6 +5,8 @@ import glob
 import gzip
 import json
 import os
+import pickle
+
 from pymol import cmd
 import requests
 import torch
@@ -208,9 +210,10 @@ def get_mapping_scope40(index_file='../data/dir.des.scope.2.08-stable.txt'):
     return mapping
 
 
-def filter_homologs_subset(index_file='../data/dir.des.scope.2.08-stable.txt',
+def filter_homologs_subset(scope40_index_file='../data/dir.des.scope.2.01-stable.txt',
+                           scope40_list='../data/scope40_2.01_pdblist.txt',
                            original_homologs='../data/homologs.txt.gz',
-                           filtered_homologs='../data/homologs_foldseek.txt.gz'):
+                           filtered_homologs='../data/homologs_scope40.txt.gz'):
     """
     Subset a homolog file to keep only lines that have an anchor in ids_to_keep
     @param ids_to_keep:
@@ -218,8 +221,12 @@ def filter_homologs_subset(index_file='../data/dir.des.scope.2.08-stable.txt',
     @param filtered_homologs:
     @return:
     """
-    scope_mapping = get_mapping_scope40(index_file)
-    protset = set(['_'.join([pdb, chain]) for pdb, chain in scope_mapping.values()])
+    # Get the list of all systems in the scope40 list in the format {pdb}_{chain}
+    scope_mapping = get_mapping_scope40(scope40_index_file)
+    with open(scope40_list, 'r') as f:
+        scope40_systems = f.readlines()
+    scope40_systems = [line.strip() for line in scope40_systems]
+    protset = set(['_'.join(list(scope_mapping[filename])) for filename in scope40_systems])
 
     with gzip.open(original_homologs, 'r') as homologs:
         with gzip.open(filtered_homologs, 'wt') as outfile:
@@ -258,8 +265,9 @@ class FilterDataset(torch.utils.data.Dataset):
         return 1, pdb_chain, distmat
 
 
-def ensure_loadable_and_small(original_homologs_path='../data/homologs_foldseek.txt.gz',
-                              clean_homologs_path='../data/homologs_foldseek_clean.txt.gz',
+def ensure_loadable_and_small(original_homologs_path='../data/homologs_scope40.txt.gz',
+                              clean_homologs_path='../data/homologs_scope40_clean.txt.gz',
+                              dump_admissible='../data/admissible.p',
                               max_res=600):
     """
     Filter out lines of the homolog file that will raise errors.
@@ -292,6 +300,7 @@ def ensure_loadable_and_small(original_homologs_path='../data/homologs_foldseek.
             if nres < max_res:
                 admissible.add(chain_name)
         pbar.update(1)
+    pickle.dump(admissible, open(dump_admissible, 'wb'))
     with gzip.open(original_homologs_path, 'r') as original_homologs_file:
         with gzip.open(clean_homologs_path, 'wt') as clean_homologs_file:
             for line in original_homologs_file:
@@ -325,7 +334,8 @@ if __name__ == '__main__':
 
     # Required files to run this preprocessing :
     # path to blast output : 'blast_results.txt.gz'
-    # path to scope specifications : '../data/dir.des.scope.2.08-stable.txt'
+    # path to scope list : '../data/scope40_2.01_pdblist.txt'
+    # path to scope specifications : '../data/dir.des.scope.2.01-stable.txt'
 
     # Get all homologs
     if args.all or args.parse_blast:
@@ -351,4 +361,3 @@ if __name__ == '__main__':
     # Filter to discard systems graphein cannot handle (mostly because of modified amino acids) and that are too big
     if args.all or args.filter:
         ensure_loadable_and_small(max_res=600)
-
