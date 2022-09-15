@@ -87,16 +87,18 @@ class PDBdataset(torch.utils.data.Dataset):
             line = f.readline().decode()
         pdbs = line.split()
 
+        # Setup
         min_pos = 1
         max_pos = min(self.max_pos, len(pdbs) - 1)
         successful_positives = 0
         anchor = pdbs[0]
-        chains = [anchor]
         positives = pdbs[1:]
         np.random.shuffle(positives)
+
         # First get the anchor. If it fails, just drop this system.
+        chains = [anchor]
         try:
-            assert max_pos > min_pos
+            assert max_pos >= min_pos
             graph, distmat = self.graph_builder.build_graph(pdbcode=anchor[:4], chain=anchor[5:])
             graphs, distmats = [graph], [distmat]
         except Exception as e:  # (ValueError, KeyError, FileNotFoundError):
@@ -110,7 +112,7 @@ class PDBdataset(torch.utils.data.Dataset):
         # Get the graph and distmat representation for this shortlist
         # If we reach max system, we stop.
         for chain in positives:
-            if successful_positives > max_pos:
+            if successful_positives >= max_pos:
                 break
             try:
                 graph, distmat = self.graph_builder.build_graph(pdbcode=chain[:4], chain=chain[5:])
@@ -123,6 +125,7 @@ class PDBdataset(torch.utils.data.Dataset):
                 msg = f"Graphein error for {chain}"
                 log(e)
                 log(msg)
+
         # If we don't have enough, we log and return None
         if len(graphs) < min_pos + 1:
             msg = f'Failed getting enough  for : {pdbs}'

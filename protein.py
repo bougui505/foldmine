@@ -197,7 +197,9 @@ if __name__ == '__main__':
     # graph_builder = GraphBuilder(choices=('peptide_bond', 'distance', 'hbond'))
     graph_builder = GraphBuilder(choices='all')
 
-    graph, distmat = graph_builder.build_graph("6oge", chain="B", doplot=False)
+    graph, distmat = graph_builder.build_graph("1f3k", chain="A", doplot=False)
+    # graph, distmat = graph_builder.build_graph("1o9g", chain="A", doplot=False)
+    # graph, distmat = graph_builder.build_graph("6oge", chain="B", doplot=False)
     # graph, distmat = graph_builder.build_graph("4f5s", chain="A", doplot=False)
     # graph, distmat = graph_builder.build_graph("1ycr", chain="A", doplot=False)
     # graph, distmat = graph_builder.build_graph("2fyw", chain="A", doplot=False)
@@ -216,3 +218,5 @@ if __name__ == '__main__':
             graph_builder = GraphBuilder()
             g = graph_builder.build_graph(args.pdb, chain=args.chain, doplot=False)
             print(g)
+
+# /home/vmallet/projects/foldmine/data/pdb_chainsplit/o9/1o9g_A.pdb.gz
