@@ -50,13 +50,13 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 
 def get_norm(nested_out):
     """
-    >>> batch = pdb_loader.get_batch_test()
-    >>> model = encoder.ProteinGraphModel(latent_dim=512)
-    >>> out = forward_batch_nested(batch, model)
-    >>> [(z_full.shape, z_fragment.shape) for z_full, z_fragment in nested_out]
-    [(torch.Size([1, 512]), torch.Size([1, 512]))]
-    >>> get_norm(nested_out)
-    tensor(..., grad_fn=<MeanBackward0>)
+    # >>> batch = pdb_loader.get_batch_test()
+    # >>> model = encoder.ProteinGraphModel(latent_dim=512)
+    # >>> out = forward_batch_nested(batch, model)
+    # >>> [(z_full.shape, z_fragment.shape) for z_full, z_fragment in nested_out]
+    # [(torch.Size([1, 512]), torch.Size([1, 512]))]
+    # >>> get_norm(nested_out)
+    # tensor(..., grad_fn=<MeanBackward0>)
     """
     import itertools
     flattened_list = list(itertools.chain.from_iterable(nested_out))
@@ -69,11 +69,11 @@ def forward_batch_nested(batch, model):
     """
     The goal is to make a separate inference on elements on which one can call model(x),
     for a list of list of inputs.
-    >>> batch = get_batch_test()
-    >>> model = encoder.ProteinGraphModel()
-    >>> out = forward_batch_graph(batch, model)
-    >>> [(z_anchor.shape, z_positive.shape) for z_anchor, z_positive in nested_out]
-    [(torch.Size([1, 512]), torch.Size([1, 512]))]
+    # >>> batch = get_batch_test()
+    # >>> model = encoder.ProteinGraphModel()
+    # >>> out = forward_batch_graph(batch, model)
+    # >>> [(z_anchor.shape, z_positive.shape) for z_anchor, z_positive in nested_out]
+    # [(torch.Size([1, 512]), torch.Size([1, 512]))]
     """
     nested_out = []
     for distmat_list in batch:
@@ -84,50 +84,51 @@ def forward_batch_nested(batch, model):
     return nested_out
 
 
-def get_contrastive_loss(nested_out, tau=1., normalize=True, num_negative_anchors=None):
+def get_contrastive_loss(nested_out, tau=1., normalize=True):
     """
+    For simplicity, we flatten everything and keep an index of where in the data each tensor was,
+    this creates the i_j_dict and the flattened_tensor of shape (elt_in_batch, embedding_dimension)
+
+    We optionnally normalize these vectors.
+    Then we precompute the pairwise distances along with their sum.
+
+    We iterate through each element i of the nested batch.
+    Then we find the other elements of the same class (homologs) named p_indexes for positives.
+    Finally, we compute the loss by summing the log of the ratio d(p,i)/ (sum - d(p,i))
     >>> n = 3
-    >>> out = [(torch.randn(1, 512), torch.randn(1, 512)) for i in range(n)]
+    >>> nested_out = [[torch.randn(1, 512) for j in range(i+3)] for i in range(n)]
     >>> loss = get_contrastive_loss(nested_out)
-    >>> loss
-    tensor(...)
     """
-    n = len(nested_out)
-    if num_negative_anchors is None:
-        num_negative_anchors = len(nested_out)
+    #
+
+    i_j_dict = {}
+    row_index = {}
+    idx = 0
+    for i in range(len(nested_out)):
+        row_index[i] = list()
+        for j in range(len(nested_out[i])):
+            i_j_dict[(i, j)] = idx
+            row_index[i].append(idx)
+            idx += 1
+    flattened_list = [nested_out[i][j] for i, j in i_j_dict.keys()]
+    flattened_tensor = torch.vstack(flattened_list)
 
     if normalize:
-        z_anchor_list = [pair[0] / (torch.linalg.norm(pair[0], dim=1) + 1e-4) for pair in nested_out]
-        z_positive_list = [pair[1] / (torch.linalg.norm(pair[1], dim=1) + 1e-4) for pair in nested_out]
-    else:
-        z_anchor_list = [pair[0] for pair in nested_out]
-        z_positive_list = [pair[1] for pair in nested_out]
-    loss = 0.
-    for i in range(n):
-        # Get numerator :
-        z_anchor_i = z_anchor_list[i]
-        sim_num = torch.matmul(z_anchor_i, z_positive_list[i].T)
-        num = torch.exp(sim_num / tau)
-        # log(f'z_full_i: {z_full_i}')
-        # log(f'sim_num: {sim_num}')
+        flattened_tensor = flattened_tensor / (torch.linalg.norm(flattened_tensor, dim=1) + 1e-4)[:, None]
 
-        # Get denominator by looping over other anchors
-        den = 0.
-        for j in range(num_negative_anchors):
-            z_anchor_j = z_anchor_list[j]
-            if i != j:
-                sim_den = torch.matmul(z_anchor_i, z_anchor_j.T)
-                den += torch.exp(sim_den / tau)
-                # log(f'sim_den: {sim_den}')
-        # log(f'num:{num}, den: {den}')
+    distance_mat = torch.einsum('ij,kj->ik', flattened_tensor, flattened_tensor)
+    distance_mat = torch.exp(distance_mat / (tau))
+    all_sums = torch.sum(torch.triu(distance_mat))
 
-        # Create a loss term
-        loss -= torch.log(num + 1e-5) - torch.log(den + 1e-5)
-
-    if n > 0:
-        loss = loss / n
-    loss = torch.squeeze(loss)
-    assert not torch.isnan(loss), 'loss is nan'
+    loss = 0
+    for (i, j), flat_idx in i_j_dict.items():
+        p_indexes = set(row_index[i]) - {flat_idx}
+        elt_coef = -1 / len(p_indexes)
+        elt_sum = 0
+        for p in p_indexes:
+            inner_elt = distance_mat[p, flat_idx]
+            elt_sum += torch.log(inner_elt / (all_sums - inner_elt + 1e-4))
+        loss += elt_coef * elt_sum
     return loss
 
 
@@ -137,7 +138,7 @@ def train(
         latent_dim=128,
         save_each_epoch=True,
         print_each=100,
-        homologs_file='data/homologs_foldseek.txt.gz',
+        homologs_file='data/homologs_scope40_clean.txt.gz',
         num_workers=os.cpu_count(),
         save_each=30,  # in minutes
         modelfilename='models/sscl.pt',
@@ -176,38 +177,41 @@ def train(
         for batch in dataloader:
             step += 1
 
-            # Batch is a nested structures : a list of two lists of lists :
-            # Batch[0] is graph_list, distmat_list
+            # Batch is a nested structures : a list of three lists of lists :
+            # Batch[0] is name, graph_list, distmat_list
             # Filter the None, get distmat and encode residue local neighborhood with CNN
             chains_batch = [item[0] for item in batch]
             filtered_batch = [item for item in batch if item[1] is not None]
-            if len(filtered_batch) < 2:
+            bs = len(filtered_batch)
+            if bs < 2:
                 print(f"Not enough data for {chains_batch}")
                 continue
-            distmat_batch = [(distmat.to(device) for distmat in distmat_list) for (_, _, distmat_list) in
-                             filtered_batch]
-            nested_out_cnn = forward_batch_nested(distmat_batch, cnn_model)
 
-            # Now get graphs and populate residues with embeddings from the CNN.
-            graph_batch = list()
-            for i, (_, graph_list, _) in enumerate(filtered_batch):
-                homolog_graph_list = list()
-                for j, graph in enumerate(graph_list):
-                    graph.to(device)
-                    graph.x = torch.cat((graph.x, nested_out_cnn[i][j]), dim=1)
-                    homolog_graph_list.append(graph)
-                graph_batch.append(homolog_graph_list)
+            try:
+                distmat_batch = [[distmat.to(device) for distmat in distmat_list] for (_, _, distmat_list) in
+                                 filtered_batch]
+                nested_out_cnn = forward_batch_nested(distmat_batch, cnn_model)
 
-            bs = len(graph_batch)
-            nested_out_graph = forward_batch_nested(graph_batch, graph_model)
-            norm = get_norm(nested_out_graph)
-            norm_loss = 0.01 * (norm - 1) ** 2
-            contrastive_loss = get_contrastive_loss(nested_out_graph)
-            loss = norm_loss + contrastive_loss
-            loss.backward()
-            opt.step()
+                # Now get graphs and populate residues with embeddings from the CNN.
+                graph_batch = list()
+                for i, (_, graph_list, _) in enumerate(filtered_batch):
+                    homolog_graph_list = list()
+                    for j, graph in enumerate(graph_list):
+                        graph.to(device)
+                        graph.x = torch.cat((graph.x, nested_out_cnn[i][j]), dim=1)
+                        homolog_graph_list.append(graph)
+                    graph_batch.append(homolog_graph_list)
+
+                nested_out_graph = forward_batch_nested(graph_batch, graph_model)
+                norm = get_norm(nested_out_graph)
+                norm_loss = 0.01 * (norm - 1) ** 2
+                contrastive_loss = get_contrastive_loss(nested_out_graph)
+                loss = norm_loss + contrastive_loss
+                loss.backward()
+                opt.step()
+            except RuntimeError as e:
+                print(e)
             opt.zero_grad()
-
             if (time.time() - t_0) / 60 >= save_each:
                 t_0 = time.time()
                 utils.save_model(graph_model, modelfilename)
