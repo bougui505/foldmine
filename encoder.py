@@ -94,7 +94,7 @@ class ProteinCNNModel(torch.nn.Module):
     """
 
     def __init__(self,
-                 hidden_dims=(64, 128, 128, 256),
+                 hidden_dims=(64, 64, 64, 64),
                  ):
         super().__init__()
         self.hidden_dims = hidden_dims
@@ -103,7 +103,7 @@ class ProteinCNNModel(torch.nn.Module):
 
         self.convs = torch.nn.ModuleList()
         for prev, next in zip(all_dims, all_dims[1:]):
-            self.convs.append(nn.Conv2d(prev, next, kernel_size=5, padding='same'))
+            self.convs.append(nn.Conv2d(prev, next, kernel_size=3, padding='same'))
 
     def forward(self, distmat):
         with torch.no_grad():
