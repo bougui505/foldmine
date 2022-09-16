@@ -94,7 +94,7 @@ def get_contrastive_loss(nested_out, tau=1., normalize=True):
 
     We iterate through each element i of the nested batch.
     Then we find the other elements of the same class (homologs) named p_indexes for positives.
-    Finally, we compute the loss by summing the log of the ratio d(p,i)/ (sum - d(p,i))
+
     >>> n = 3
     >>> nested_out = [[torch.randn(1, 512) for j in range(i+3)] for i in range(n)]
     >>> loss = get_contrastive_loss(nested_out)
@@ -112,22 +112,30 @@ def get_contrastive_loss(nested_out, tau=1., normalize=True):
             idx += 1
     flattened_list = [nested_out[i][j] for i, j in i_j_dict.keys()]
     flattened_tensor = torch.vstack(flattened_list)
+    all_idx = set(i_j_dict.values())
 
     if normalize:
         flattened_tensor = flattened_tensor / (torch.linalg.norm(flattened_tensor, dim=1) + 1e-4)[:, None]
 
     distance_mat = torch.einsum('ij,kj->ik', flattened_tensor, flattened_tensor)
-    distance_mat = torch.exp(distance_mat / (tau))
-    all_sums = torch.sum(torch.triu(distance_mat))
+    distance_mat = torch.exp(distance_mat / tau)
 
     loss = 0
     for (i, j), flat_idx in i_j_dict.items():
         p_indexes = set(row_index[i]) - {flat_idx}
         elt_coef = -1 / len(p_indexes)
         elt_sum = 0
+        inner_den = 1e-4
+
+        # The denominator does not depend on which positive we are looking at.
+        # Another looping option is :
+        # for a in all_idx-set(row_index[i]):
+        for a in all_idx - {flat_idx}:
+            inner_den += distance_mat[a, i]
+
         for p in p_indexes:
-            inner_elt = distance_mat[p, flat_idx]
-            elt_sum += torch.log(inner_elt / (all_sums - inner_elt + 1e-4))
+            inner_num = distance_mat[p, flat_idx]
+            elt_sum += torch.log(inner_num / inner_den)
         loss += elt_coef * elt_sum
     return loss
 
