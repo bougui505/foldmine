@@ -96,10 +96,36 @@ def get_contrastive_loss(nested_out, tau=1., normalize=True):
     Then we find the other elements of the same class (homologs) named p_indexes for positives.
 
     >>> n = 3
-    >>> nested_out = [[torch.randn(1, 512) for j in range(i+3)] for i in range(n)]
-    >>> loss = get_contrastive_loss(nested_out)
+
+    # >>> nested_out = [[torch.tensor([512))+i for j in range(i+3)] for i in range(n)]
+    # >>> print([[ten.shape for ten in lista] for lista in nested_out])
+
+    >>> nested_out = [[torch.tensor([[0, 1]]), torch.tensor([[0, -1]])],
+    ... [torch.tensor([[0, 1]]), torch.tensor([[0, -1]])]]
+    >>> nested_out = [[ten.float() for ten in lista] for lista in nested_out]
+    >>> loss = get_contrastive_loss(nested_out, normalize=True)
+    >>> loss
+    tensor(9.9951)
+    >>> nested_out = [[torch.tensor([[0, 1]]), torch.tensor([[0, 1]])],
+    ... [torch.tensor([[1, 0]]), torch.tensor([[1, 0]])]]
+    >>> nested_out = [[ten.float() for ten in lista] for lista in nested_out]
+    >>> loss = get_contrastive_loss(nested_out, normalize=True)
+    >>> loss
+    tensor(2.8272)
+    >>> nested_out = [[torch.tensor([[0, 1]]), torch.tensor([[0, 1]])],
+    ... [torch.tensor([[0,-3]]), torch.tensor([[0,-3]])]]
+    >>> nested_out = [[ten.float() for ten in lista] for lista in nested_out]
+    >>> loss = get_contrastive_loss(nested_out, normalize=True)
+    >>> loss
+    tensor(1.9963)
+    >>> nested_out = [[torch.tensor([[0, 1]]), torch.tensor([[0, 1]])],
+    ... [torch.tensor([[0,-3]]), torch.tensor([[0,-3]]), torch.tensor([[0,-3]])]]
+    >>> nested_out = [[ten.float() for ten in lista] for lista in nested_out]
+    >>> loss = get_contrastive_loss(nested_out, normalize=True)
+    >>> loss
+    tensor(3.1417)
+
     """
-    #
 
     i_j_dict = {}
     row_index = {}
