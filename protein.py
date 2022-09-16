@@ -51,10 +51,73 @@ import networkx as nx
 logger = logging.getLogger("graphein.protein")
 logger.setLevel(level="ERROR")
 
+import pandas as pd
+
+from graphein.protein.edges.distance import get_ring_atoms, get_ring_centroids, compute_distmat
+from graphein.protein.resi_atoms import AROMATIC_RESIS
+from graphein.protein.utils import filter_dataframe
+
+
+def add_aromatic_interactions(G: nx.Graph, pdb_df=None):
+    """
+    Find all aromatic-aromatic interaction.
+
+    Criteria: phenyl ring centroids separated between 4.5A to 7A.
+    Phenyl rings are present on ``PHE, TRP, HIS, TYR``
+    (:const:`~graphein.protein.resi_atoms.AROMATIC_RESIS`).
+    Phenyl ring atoms on these amino acids are defined by the following
+    atoms:
+    - PHE: CG, CD, CE, CZ
+    - TRP: CD, CE, CH, CZ
+    - HIS: CG, CD, ND, NE, CE
+    - TYR: CG, CD, CE, CZ
+    Centroids of these atoms are taken by taking:
+        (mean x), (mean y), (mean z)
+    for each of the ring atoms.
+    Notes for future self/developers:
+    - Because of the requirement to pre-compute ring centroids, we do not
+        use the functions written above (filter_dataframe, compute_distmat,
+        get_interacting_atoms), as they do not return centroid atom
+        euclidean coordinates.
+    """
+    if pdb_df is None:
+        pdb_df = G.graph["raw_pdb_df"]
+    dfs = []
+    for resi in AROMATIC_RESIS:
+        resi_rings_df = get_ring_atoms(pdb_df, resi)
+        resi_rings_df = filter_dataframe(
+            resi_rings_df, "node_id", list(G.nodes()), True
+        )
+        resi_centroid_df = get_ring_centroids(resi_rings_df)
+        dfs.append(resi_centroid_df)
+    aromatic_df = (
+        pd.concat(dfs).sort_values(by="node_id").reset_index(drop=True)
+    )
+    if len(aromatic_df) == 0:
+        return
+    distmat = compute_distmat(aromatic_df)
+    distmat.set_index(aromatic_df["node_id"], inplace=True)
+    distmat.columns = aromatic_df["node_id"]
+    distmat = distmat[(distmat >= 4.5) & (distmat <= 7)].fillna(0)
+    indices = np.where(distmat > 0)
+
+    interacting_resis = [
+        (distmat.index[r], distmat.index[c])
+        for r, c in zip(indices[0], indices[1])
+    ]
+    for n1, n2 in interacting_resis:
+        assert G.nodes[n1]["residue_name"] in AROMATIC_RESIS
+        assert G.nodes[n2]["residue_name"] in AROMATIC_RESIS
+        if G.has_edge(n1, n2):
+            G.edges[n1, n2]["kind"].add("aromatic")
+        else:
+            G.add_edge(n1, n2, kind={"aromatic"})
+
+
 CHOICES = {
     'peptide_bond': gp.add_peptide_bonds,
     'hbond': gp.add_hydrogen_bond_interactions,
-    'aromatic': gp.add_aromatic_interactions,
+    'aromatic': add_aromatic_interactions,
     'aromatic_sulphur': gp.add_aromatic_sulphur_interactions,
     'ionic': gp.add_ionic_interactions,
     'pi': gp.add_cation_pi_interactions,
@@ -197,7 +260,11 @@ if __name__ == '__main__':
     # graph_builder = GraphBuilder(choices=('peptide_bond', 'distance', 'hbond'))
     graph_builder = GraphBuilder(choices='all')
 
-    graph, distmat = graph_builder.build_graph("1f3k", chain="A", doplot=False)
+    # to solve
+    graph, distmat = graph_builder.build_graph("3l71", chain="V", doplot=False)
+    # graph, distmat = graph_builder.build_graph("1g2y", chain="A", doplot=False)
+
+    # solved
     # graph, distmat = graph_builder.build_graph("1o9g", chain="A", doplot=False)
     # graph, distmat = graph_builder.build_graph("6oge", chain="B", doplot=False)
     # graph, distmat = graph_builder.build_graph("4f5s", chain="A", doplot=False)
