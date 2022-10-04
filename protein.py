@@ -261,7 +261,8 @@ if __name__ == '__main__':
     graph_builder = GraphBuilder(choices='all')
 
     # to solve
-    graph, distmat = graph_builder.build_graph("3l71", chain="V", doplot=False)
+    graph, distmat = graph_builder.build_graph("1tt9", chain="C", doplot=False)
+    # graph, distmat = graph_builder.build_graph("3l71", chain="V", doplot=False)
     # graph, distmat = graph_builder.build_graph("1g2y", chain="A", doplot=False)
 
     # solved
