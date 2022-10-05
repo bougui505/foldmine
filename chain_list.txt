@@ -1,3 +1,0 @@
-data/pdb_chainsplit/f3/1f3k_A.pdb
-data/pdb_chainsplit/FY/2FYW_A.pdb
-
