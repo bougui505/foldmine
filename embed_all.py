@@ -14,7 +14,6 @@ import yaml
 
 import torch
 from torchdrug import models, layers, transforms, data, utils
-from torchdrug.layers import geometry
 
 
 def parse_torchdrug_yaml(yml_file='config.yml'):
@@ -86,12 +85,35 @@ def load_model(cfg):
     return model
 
 
+def pdbfile_to_chain(pdb_file):
+    # toto/tata/1ycr_A.pdb.gz => 1ycr_A
+    pdb_name = os.path.basename(pdb_file).split('.')[0]
+    return pdb_name
+
+
+def pdbchain_to_hdf5path(pdb_chain):
+    # 1ycr_A => yc/1ycr_A
+    pdb_dir = f"{pdb_chain[1:3]}/{pdb_chain}"
+    return pdb_dir
+
+
+def pdbfile_to_hdf5path(pdb_file):
+    # toto/tata/1ycr_A.pdb.gz => yc/1ycr_A
+    return pdbchain_to_hdf5path(pdbfile_to_chain(pdb_file))
+
+
 class PDBdataset(torch.utils.data.Dataset):
-    def __init__(self, data_path='data/pdb_chainsplit', chain_list=None):
+    def __init__(self, data_path='data/pdb_chainsplit', chain_list=None, out_path=None):
         if chain_list is None:
             self.chainlist = glob.glob(os.path.join(data_path, "**", "*.pdb*"))
         else:
             self.chainlist = [os.path.join(data_path, chain) for chain in chain_list]
+
+        # Optionally filter chainlist to remove existing entries in the hdf5
+        if out_path is not None:
+            with h5py.File(args.out_path, 'a') as f:
+                self.chainlist = [chain for chain in self.chainlist if pdbfile_to_hdf5path(chain) not in f]
+
         self.data_path = data_path
         self.protein_view_transform = transforms.ProteinView(view='residue')
 
@@ -100,6 +122,7 @@ class PDBdataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         pdb = self.chainlist[index]
+        pdb_name = pdbfile_to_chain(pdb)
         td_graph = None
 
         # Torchdrug can only process pdb files. One needs to temporary save extracted pdb.gz
@@ -126,16 +149,17 @@ class PDBdataset(torch.utils.data.Dataset):
         finally:
             if compressed:
                 os.remove(temp_pdb_name)
-        return pdb, td_graph
+        return pdb_name, td_graph
 
 
 class Collater:
     def __init__(self):
-        self.graph_construction_model = layers.GraphConstruction(node_layers=[geometry.AlphaCarbonNode()],
+        self.graph_construction_model = layers.GraphConstruction(node_layers=[layers.geometry.AlphaCarbonNode()],
                                                                  edge_layers=[
-                                                                     geometry.SpatialEdge(radius=10.0, min_distance=5),
-                                                                     geometry.KNNEdge(k=10, min_distance=5),
-                                                                     geometry.SequentialEdge(max_distance=2)],
+                                                                     layers.geometry.SpatialEdge(radius=10.0,
+                                                                                                 min_distance=5),
+                                                                     layers.geometry.KNNEdge(k=10, min_distance=5),
+                                                                     layers.geometry.SequentialEdge(max_distance=2)],
                                                                  edge_feature="gearnet")
 
     def collate_block(self, samples):
@@ -173,14 +197,17 @@ if __name__ == '__main__':
     args, unparsed = parser.parse_known_args()
 
     cfg = parse_torchdrug_yaml()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = load_model(cfg=cfg)
+    model = model.to(device)
 
-    dataset = PDBdataset(data_path=args.pdb_path, chain_list=['f3/1f3k_A.pdb'])
+    dataset = PDBdataset(data_path=args.pdb_path, out_path=args.out_path)
+    # dataset = PDBdataset(data_path=args.pdb_path, chain_list=['f3/1f3k_A.pdb'])
     collater = Collater()
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=1,
                                              shuffle=False,
-                                             num_workers=0,
+                                             num_workers=os.cpu_count(),
                                              collate_fn=collater.collate_block)
 
     with h5py.File(args.out_path, 'a') as f:
@@ -188,30 +215,32 @@ if __name__ == '__main__':
             # Sometimes all preprocessing failed
             if names is None:
                 continue
+            try:
+                batched_graphs = batched_graphs.to(device)
+                # Now make inference and collect residues and graph embeddings.
+                with torch.no_grad():
+                    out = model(graph=batched_graphs, input=batched_graphs.residue_feature.float())
+                graph_feat = out['graph_feature'][:, -512:].to('cpu')
+                node_feat = out['node_feature'][:, -512:].to('cpu')
+                res_ids = batched_graphs.residue_number.to('cpu')
 
-            # Now make inference and collect residues and graph embeddings.
-            with torch.no_grad():
-                out = model(graph=batched_graphs, input=batched_graphs.residue_feature.float())
-            graph_feat = out['graph_feature']
-            node_feat = out['node_feature']
-            res_ids = batched_graphs.residue_number
-
-            # Split the result per batch.
-            successive_lengths = batched_graphs.num_residues
-            split_ids = split_results(res_ids, successive_lengths)
-            split_node_feat = split_results(node_feat, successive_lengths)
-
+                # Split the result per batch.
+                successive_lengths = batched_graphs.num_residues
+                split_ids = split_results(res_ids, successive_lengths)
+                split_node_feat = split_results(node_feat, successive_lengths)
+            except Exception as e:
+                print(e)
+                continue
             # Append each system to the hdf5
             for pdb, graph_embs, res_ids, res_embs in zip(names, graph_feat, split_ids, split_node_feat):
-                pdb = os.path.basename(pdb)
-                pdb_dir = f"{pdb[1:3]}/{pdb}/"
+                pdb_dir = pdbchain_to_hdf5path(pdb)
                 pdbgrp = f.require_group(pdb_dir)
                 grp_keys = list(pdbgrp.keys())
                 datasets = {'graph_embs': graph_embs, 'res_ids': res_ids, 'res_embs': res_embs}
                 for name, value in datasets.items():
                     if not name in grp_keys:
-                        print(value.shape)
                         pdbgrp.create_dataset(name=name, data=value)
+
 
     def test():
         with h5py.File('test.hdf5', 'a') as f:
