@@ -138,11 +138,13 @@ def hash_func_number(number):
 
 def hash_func_name(name):
     """
-    >>> name = '1ycr'
-    >>> hash_func_name(name)
-    'yc/1ycr'
+    >>> hash_func_name('1ycr_A')
+    'yc/1ycr_A'
+    >>> hash_func_name('1ycr_A_34')
+    'yc/1ycr_A'
     """
-    return f'{name[1:3]}/{name}'
+    pdb, chain = name.split('_')[:2]
+    return f'{pdb[1:3]}/{pdb}_{chain}'
 
 
 class NNindex(object):
@@ -152,6 +154,9 @@ class NNindex(object):
     >>> nnames, dists = index.query('7f14_B', k=3)
     >>> nnames
     ['7f14_B', '7f13_B', '3f0g_E']
+
+    >>> index = NNindex('index_res_test')
+    >>> index.build('data/small.hdf5', residue_level=True)
     """
 
     def __init__(self, index_dirname, dim=512):
@@ -164,7 +169,7 @@ class NNindex(object):
         self.mappingfilename = f'{index_dirname}/mapping.h5'
         self.metric = 'euclidean'
 
-    def build(self, infilename, n_trees=10):
+    def build(self, infilename, n_trees=10, residue_level=False):
         self.index = AnnoyIndex(self.dim, self.metric)
         self.index.on_disk_build(self.annoyfilename)
         i = 0
@@ -174,10 +179,18 @@ class NNindex(object):
             pbar = tqdm.tqdm(total=n)
             for key in f.keys():
                 for system in f[key].keys():  # iterate pdb systems
-                    v = f[key][system]['graph_embs'][()]
-                    self.index.add_item(i, v)
-                    annoy_mapping.add(i, system)
-                    i += 1
+                    if residue_level:
+                        res_embs = f[key][system]['res_embs'][()]
+                        res_ids = f[key][system]['res_ids'][()]
+                        for resid, resemb in zip(res_ids, res_embs):
+                            self.index.add_item(i, resemb)
+                            annoy_mapping.add(i, f'{system}_{resid}')
+                            i += 1
+                    else:
+                        v = f[key][system]['graph_embs'][()]
+                        self.index.add_item(i, v)
+                        annoy_mapping.add(i, system)
+                        i += 1
                     pbar.update(1)
             pbar.close()
         self.index.build(n_trees)
@@ -228,6 +241,7 @@ if __name__ == '__main__':
     # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('--hdf5', help='HDF5 for building index')
     parser.add_argument('--out', help='Output directory for the index')
+    parser.add_argument('--residue', help='Residue level', action='store_true')
     parser.add_argument('--test', help='Test the code', action='store_true')
     parser.add_argument('--func', help='Test only the given function(s)', nargs='+')
     args = parser.parse_args()
@@ -247,4 +261,4 @@ if __name__ == '__main__':
         sys.exit()
     if args.hdf5 is not None:
         index = NNindex(args.out)
-        index.build(args.hdf5)
+        index.build(args.hdf5, residue_level=args.residue)
