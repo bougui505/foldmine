@@ -24,3 +24,5 @@ test.pickle
 test.py
 trainer.log~20220907-180630~
 test2.h5
+index_test/annoy.ann
+index_test/mapping.h5
