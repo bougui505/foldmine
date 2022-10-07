@@ -40,9 +40,6 @@ import h5py
 from annoy import AnnoyIndex
 import pickle
 import tqdm
-from misc.Timer import Timer
-
-TIMER = Timer(autoreset=True)
 
 
 def len_hdf5(hdf5f):
