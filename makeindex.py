@@ -66,6 +66,14 @@ class Mapping(object):
     'toto'
     >>> mapping.name_to_number('toto')
     0
+
+    >>> mapping = Mapping('test2.h5', hash_func_number=hash_func_number, hash_func_name=hash_func_name)
+    >>> mapping.add(0, 'toto')
+    >>> mapping.number_to_name(0)
+    'toto'
+
+    # >>> mapping.name_to_number('toto')
+    # 0
     """
 
     def __init__(self, h5fname, hash_func_number=lambda x: x, hash_func_name=lambda x: x, verbose=False):
@@ -97,16 +105,47 @@ class Mapping(object):
         leaf = group.require_group(str(number_hash))
         leaf.attrs[str(number)] = name
 
-        name_hash = self.hash_func_number(name)
+        name_hash = self.hash_func_name(name)
         group = self.h5f['name_to_number']
         leaf = group.require_group(name_hash)
         leaf.attrs[name] = number
 
     def number_to_name(self, number):
-        return self.h5f['number_to_name'][str(number)].attrs[str(number)]
+        number_hash = self.hash_func_number(number)
+        group = self.h5f['number_to_name'][str(number_hash)]
+        return group.attrs[str(number)]
 
     def name_to_number(self, name):
-        return self.h5f['name_to_number'][str(name)].attrs[str(name)]
+        name_hash = self.hash_func_name(name)
+        return self.h5f['name_to_number'][name_hash].attrs[str(name)]
+
+
+def hash_func_number(number):
+    """
+    >>> number = 123456789
+    >>> hash_func_number(number)
+    '123/456/789'
+    >>> number = 123456
+    >>> hash_func_number(number)
+    '0/123/456'
+    >>> number = 56
+    >>> hash_func_number(number)
+    '0/0/56'
+    >>> number = 0
+    >>> hash_func_number(number)
+    '0/0/0'
+    """
+    number = int(number)
+    return f'{number//10**6}/{(number//10**3)%10**3}/{number%10**3}'
+
+
+def hash_func_name(name):
+    """
+    >>> name = '1ycr'
+    >>> hash_func_name(name)
+    'yc/1ycr'
+    """
+    return f'{name[1:3]}/{name}'
 
 
 def build_index(hdf5fn, outfilename, dim=512, n_trees=10):
@@ -180,4 +219,4 @@ if __name__ == '__main__':
                 f = getattr(sys.modules[__name__], f)
                 doctest.run_docstring_examples(f, globals())
         sys.exit()
-    build_index('data/small.hdf5', 'test.ann')
+    # build_index('data/small.hdf5', 'test.ann')
