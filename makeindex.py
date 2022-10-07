@@ -54,6 +54,56 @@ def len_hdf5(hdf5f):
     return n
 
 
+class Mapping(object):
+    """
+    # >>> with Mapping('test.h5') as mapping:
+    # ...     mapping.add(0, 'toto')
+
+    >>> mapping = Mapping('test.h5')
+    >>> mapping.add(0, 'toto')
+
+    >>> h5f = h5py.File('test.h5', 'r')
+    >>> list(h5f['number_to_name']['0'].attrs.items())
+    [('0', 'toto')]
+    >>> list(h5f['name_to_number']['toto'].attrs.items())
+    [('toto', 0)]
+    """
+
+    def __init__(self, h5fname, hash_func_number=lambda x: x, hash_func_name=lambda x: x, verbose=False):
+        self.verbose = verbose
+        self.hash_func_number = hash_func_number
+        self.hash_func_name = hash_func_name
+        self.h5fname = h5fname
+        self.h5f = h5py.File(self.h5fname, 'a')
+        self.h5f.require_group('name_to_number')
+        self.h5f.require_group('number_to_name')
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, typ, val, traceb):
+        self.__del__()
+        return True
+
+    def __del__(self):
+        self.h5f.close()
+        if self.verbose:
+            print(f'{self.h5fname} closed')
+
+    def add(self, number, name):
+        """
+        """
+        number_hash = self.hash_func_number(number)
+        group = self.h5f['number_to_name']
+        leaf = group.require_group(str(number_hash))
+        leaf.attrs[str(number)] = name
+
+        name_hash = self.hash_func_number(name)
+        group = self.h5f['name_to_number']
+        leaf = group.require_group(name_hash)
+        leaf.attrs[name] = number
+
+
 def build_index(hdf5fn, outfilename, dim=512, n_trees=10):
     """
     >>> build_index('data/small.hdf5', 'test.ann')
