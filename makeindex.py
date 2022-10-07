@@ -72,8 +72,8 @@ class Mapping(object):
     >>> mapping.number_to_name(0)
     'toto'
 
-    # >>> mapping.name_to_number('toto')
-    # 0
+    >>> mapping.name_to_number('toto')
+    0
     """
 
     def __init__(self, h5fname, hash_func_number=lambda x: x, hash_func_name=lambda x: x, verbose=False):
