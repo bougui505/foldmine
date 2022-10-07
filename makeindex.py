@@ -229,7 +229,8 @@ if __name__ == '__main__':
     # argparse.ArgumentParser(prog=None, usage=None, description=None, epilog=None, parents=[], formatter_class=argparse.HelpFormatter, prefix_chars='-', fromfile_prefix_chars=None, argument_default=None, conflict_handler='error', add_help=True, allow_abbrev=True, exit_on_error=True)
     parser = argparse.ArgumentParser(description='')
     # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
-    parser.add_argument('-a', '--arg1')
+    parser.add_argument('--hdf5', help='HDF5 for building index')
+    parser.add_argument('--out', help='Output directory for the index')
     parser.add_argument('--test', help='Test the code', action='store_true')
     parser.add_argument('--func', help='Test only the given function(s)', nargs='+')
     args = parser.parse_args()
@@ -247,3 +248,6 @@ if __name__ == '__main__':
                 f = getattr(sys.modules[__name__], f)
                 doctest.run_docstring_examples(f, globals())
         sys.exit()
+    if args.hdf5 is not None:
+        index = NNindex(args.out)
+        index.build(args.hdf5)
