@@ -62,11 +62,10 @@ class Mapping(object):
     >>> mapping = Mapping('test.h5')
     >>> mapping.add(0, 'toto')
 
-    >>> h5f = h5py.File('test.h5', 'r')
-    >>> list(h5f['number_to_name']['0'].attrs.items())
-    [('0', 'toto')]
-    >>> list(h5f['name_to_number']['toto'].attrs.items())
-    [('toto', 0)]
+    >>> mapping.number_to_name(0)
+    'toto'
+    >>> mapping.name_to_number('toto')
+    0
     """
 
     def __init__(self, h5fname, hash_func_number=lambda x: x, hash_func_name=lambda x: x, verbose=False):
@@ -102,6 +101,12 @@ class Mapping(object):
         group = self.h5f['name_to_number']
         leaf = group.require_group(name_hash)
         leaf.attrs[name] = number
+
+    def number_to_name(self, number):
+        return self.h5f['number_to_name'][str(number)].attrs[str(number)]
+
+    def name_to_number(self, name):
+        return self.h5f['name_to_number'][str(name)].attrs[str(name)]
 
 
 def build_index(hdf5fn, outfilename, dim=512, n_trees=10):
