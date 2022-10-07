@@ -151,11 +151,16 @@ def hash_func_name(name):
 def build_index(hdf5fn, outfilename, dim=512, n_trees=10):
     """
     >>> build_index('data/small.hdf5', 'test.ann')
+    >>> mapping = Mapping('test.h5', hash_func_number=hash_func_number, hash_func_name=hash_func_name)
+    >>> mapping.number_to_name(0)
+    '200l_A'
     """
     index = AnnoyIndex(dim, 'dot')
     index.on_disk_build(outfilename)
     i = 0
-    annoy_mapping = dict()
+    annoy_mapping = Mapping(f'{os.path.splitext(outfilename)[0]}.h5',
+                            hash_func_number=hash_func_number,
+                            hash_func_name=hash_func_name)
     with h5py.File(hdf5fn, 'r') as f:
         n = len_hdf5(f)
         pbar = tqdm.tqdm(total=n)
@@ -163,13 +168,11 @@ def build_index(hdf5fn, outfilename, dim=512, n_trees=10):
             for system in f[key].keys():  # iterate pdb systems
                 v = f[key][system]['graph_embs'][()]
                 index.add_item(i, v)
-                annoy_mapping[i] = system
+                annoy_mapping.add(i, system)
                 i += 1
                 pbar.update(1)
         pbar.close()
     index.build(n_trees)
-    with open(f'{os.path.splitext(outfilename)[0]}.pickle', 'wb') as pf:
-        pickle.dump(annoy_mapping, pf)
 
 
 def log(msg):
