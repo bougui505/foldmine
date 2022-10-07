@@ -88,9 +88,9 @@ class Mapping(object):
     def __enter__(self):
         return self
 
-    def __exit__(self, typ, val, traceb):
-        self.__del__()
-        return True
+    def __exit__(self, typ, val, tra):
+        if typ is None:
+            self.__del__()
 
     def __del__(self):
         self.h5f.close()
@@ -148,31 +148,56 @@ def hash_func_name(name):
     return f'{name[1:3]}/{name}'
 
 
-def build_index(hdf5fn, outfilename, dim=512, n_trees=10):
+class NNindex(object):
     """
-    >>> build_index('data/small.hdf5', 'test.ann')
-    >>> mapping = Mapping('test.h5', hash_func_number=hash_func_number, hash_func_name=hash_func_name)
-    >>> mapping.number_to_name(0)
-    '200l_A'
+    >>> index = NNindex('index_test')
+    >>> index.build('data/small.hdf5')
+    >>> nnames, dists = index.query('7f14_B', k=3)
+    >>> nnames
+    ['7f14_B', '7f13_B', '3f0g_E']
     """
-    index = AnnoyIndex(dim, 'dot')
-    index.on_disk_build(outfilename)
-    i = 0
-    annoy_mapping = Mapping(f'{os.path.splitext(outfilename)[0]}.h5',
-                            hash_func_number=hash_func_number,
-                            hash_func_name=hash_func_name)
-    with h5py.File(hdf5fn, 'r') as f:
-        n = len_hdf5(f)
-        pbar = tqdm.tqdm(total=n)
-        for key in f.keys():
-            for system in f[key].keys():  # iterate pdb systems
-                v = f[key][system]['graph_embs'][()]
-                index.add_item(i, v)
-                annoy_mapping.add(i, system)
-                i += 1
-                pbar.update(1)
-        pbar.close()
-    index.build(n_trees)
+
+    def __init__(self, index_dirname, dim=512):
+        self.dim = dim
+        self.index = None
+        self.index_dirname = index_dirname
+        if not os.path.isdir(index_dirname):
+            os.makedirs(index_dirname)
+        self.annoyfilename = f'{index_dirname}/annoy.ann'
+        self.mappingfilename = f'{index_dirname}/mapping.h5'
+        self.metric = 'euclidean'
+
+    def build(self, infilename, n_trees=10):
+        self.index = AnnoyIndex(self.dim, self.metric)
+        self.index.on_disk_build(self.annoyfilename)
+        i = 0
+        annoy_mapping = Mapping(self.mappingfilename, hash_func_number=hash_func_number, hash_func_name=hash_func_name)
+        with h5py.File(infilename, 'r') as f:
+            n = len_hdf5(f)
+            pbar = tqdm.tqdm(total=n)
+            for key in f.keys():
+                for system in f[key].keys():  # iterate pdb systems
+                    v = f[key][system]['graph_embs'][()]
+                    self.index.add_item(i, v)
+                    annoy_mapping.add(i, system)
+                    i += 1
+                    pbar.update(1)
+            pbar.close()
+        self.index.build(n_trees)
+
+    def query(self, name, k=1):
+        """
+        """
+        if self.index is None:
+            self.index = AnnoyIndex(self.dim, self.metric)
+            self.index.load(self.annoyfilename)
+        with Mapping(self.mappingfilename, hash_func_number=hash_func_number, hash_func_name=hash_func_name) as mapping:
+            ind = mapping.name_to_number(name)
+            knn, dists = self.index.get_nns_by_item(ind, n=k, include_distances=True)
+            nnames = []
+            for i in knn:
+                nnames.append(mapping.number_to_name(i))
+            return nnames, dists
 
 
 def log(msg):
@@ -222,4 +247,3 @@ if __name__ == '__main__':
                 f = getattr(sys.modules[__name__], f)
                 doctest.run_docstring_examples(f, globals())
         sys.exit()
-    # build_index('data/small.hdf5', 'test.ann')
