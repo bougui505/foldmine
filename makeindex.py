@@ -242,6 +242,9 @@ if __name__ == '__main__':
     parser.add_argument('--hdf5', help='HDF5 for building index')
     parser.add_argument('--out', help='Output directory for the index')
     parser.add_argument('--residue', help='Residue level', action='store_true')
+    parser.add_argument('--query', help='')
+    parser.add_argument('-k', help='k-neighbors to return', type=int, default=3)
+    parser.add_argument('--index', help='Directory with index')
     parser.add_argument('--test', help='Test the code', action='store_true')
     parser.add_argument('--func', help='Test only the given function(s)', nargs='+')
     args = parser.parse_args()
@@ -262,3 +265,9 @@ if __name__ == '__main__':
     if args.hdf5 is not None:
         index = NNindex(args.out)
         index.build(args.hdf5, residue_level=args.residue)
+
+    if args.query is not None:
+        index = NNindex(args.index)
+        nnames, dists = index.query(args.query, k=args.k)
+        for name, dist in zip(nnames, dists):
+            print(name, dist)
