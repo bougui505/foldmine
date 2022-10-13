@@ -15,7 +15,7 @@ import wget
 import sys
 
 sys.path.append('..')
-import protein
+from pre_gearnet import protein
 
 
 # GET HOMOLOGS

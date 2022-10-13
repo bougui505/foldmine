@@ -39,7 +39,6 @@ import gzip
 import logging
 import numpy as np
 import torch
-import torch_geometric.data
 
 from utils import log
 

@@ -46,7 +46,7 @@ import pdb_loader
 class ProteinGraphModel(torch.nn.Module):
     """
     >>> seed = torch.manual_seed(42)
-    >>> dataset = pdb_loader.PDBdataset(homologs_file="data/homologs.txt.gz")
+    >>> dataset = pdb_loader.PDBdataset(homologs_file="../data/homologs.txt.gz")
     >>> g_anchor, g_positive = dataset.__getitem__(1000)
     >>> g_anchor
     Data(edge_index=[2, 558], node_id=[154], num_nodes=154, x=[154, 20])
@@ -142,7 +142,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     seed = torch.manual_seed(42)
-    dataset = pdb_loader.PDBdataset(homologs_file="data/homologs.txt.gz")
+    dataset = pdb_loader.PDBdataset(homologs_file="../data/homologs.txt.gz")
     g_anchor, g_positive = dataset.__getitem__(1000)
     print(g_anchor)
     model = ProteinGraphModel()

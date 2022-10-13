@@ -218,7 +218,7 @@ class GraphBuilder:
         Data(node_id=[85], edge_type=[963], num_nodes=85, x=[85, 20])
         """
         script_dir = os.path.dirname(os.path.realpath(__file__))
-        pdb_path = os.path.join(script_dir, "data", "pdb_chainsplit", pdbcode[1:3], f"{pdbcode}_{chain}.pdb.gz")
+        pdb_path = os.path.join(script_dir, "../data", "pdb_chainsplit", pdbcode[1:3], f"{pdbcode}_{chain}.pdb.gz")
         graphein_graph = construct_graph(config=self.config, pdb_path=pdb_path)
 
         # When constructing the graph, graphein creates a 'graph' dictionnary field in the nx object.

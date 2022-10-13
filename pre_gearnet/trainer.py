@@ -40,8 +40,7 @@ import datetime
 import torch
 import time
 
-import pdb_loader
-import encoder
+from pre_gearnet import encoder, pdb_loader
 import utils
 
 # See: https://discuss.pytorch.org/t/runtimeerror-received-0-items-of-ancdata/4999

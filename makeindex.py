@@ -35,10 +35,12 @@
 #  This program is free software: you can redistribute it and/or modify     #
 #                                                                           #
 #############################################################################
-import os
-import h5py
+
 from annoy import AnnoyIndex
+import h5py
+import os
 import pickle
+import time
 import tqdm
 
 
@@ -133,7 +135,7 @@ def hash_func_number(number):
     '0/0/0'
     """
     number = int(number)
-    return f'{number//10**6}/{(number//10**3)%10**3}/{number%10**3}'
+    return f'{number // 10 ** 6}/{(number // 10 ** 3) % 10 ** 3}/{number % 10 ** 3}'
 
 
 def hash_func_name(name):
@@ -193,7 +195,9 @@ class NNindex(object):
                         i += 1
                     pbar.update(1)
             pbar.close()
+        t_0 = time.time()
         self.index.build(n_trees)
+        print(f'Index built in {time.time() - t_0:.3f}s')
 
     def query(self, name, k=1):
         """
@@ -227,6 +231,7 @@ if __name__ == '__main__':
     import sys
     import doctest
     import argparse
+
     # ### UNCOMMENT FOR LOGGING ####
     # import os
     # import logging
@@ -241,6 +246,7 @@ if __name__ == '__main__':
     # parser.add_argument(name or flags...[, action][, nargs][, const][, default][, type][, choices][, required][, help][, metavar][, dest])
     parser.add_argument('--hdf5', help='HDF5 for building index')
     parser.add_argument('--out', help='Output directory for the index')
+    parser.add_argument('--trees', help='Numbers of trees to build', type=int, default=10)
     parser.add_argument('--residue', help='Residue level', action='store_true')
     parser.add_argument('--query', help='')
     parser.add_argument('-k', help='k-neighbors to return', type=int, default=3)
@@ -264,7 +270,7 @@ if __name__ == '__main__':
         sys.exit()
     if args.hdf5 is not None:
         index = NNindex(args.out)
-        index.build(args.hdf5, residue_level=args.residue)
+        index.build(args.hdf5, residue_level=args.residue, n_trees=args.trees)
 
     if args.query is not None:
         index = NNindex(args.index)

@@ -16,7 +16,7 @@ import torch
 from torchdrug import models, layers, transforms, data, utils
 
 
-def parse_torchdrug_yaml(yml_file='config.yml'):
+def parse_torchdrug_yaml(yml_file='data/model/config.yml'):
     """
     This code makes the best of gearnet repo to make it work.
     It is all boilerplate code to load a yml into a config dict like file that is used by torchdrug.
@@ -42,22 +42,17 @@ def parse_torchdrug_yaml(yml_file='config.yml'):
         return cfg
 
     def parse_args():
-        parser = argparse.ArgumentParser()
-        parser.add_argument("-c", "--config", help="yaml configuration file", default='config.yml')
-        parser.add_argument("-s", "--seed", help="random seed for PyTorch", type=int, default=1024)
-        args, unparsed = parser.parse_known_args()
-        # get dynamic arguments defined in the config file
-        vars = detect_variables(args.config)
+        vars = detect_variables(yml_file)
         parser = argparse.ArgumentParser()
         for var in vars:
             parser.add_argument("--%s" % var, default="null")
         vars = parser.parse_known_args(unparsed)[0]
         vars = {k: utils.literal_eval(v) for k, v in vars._get_kwargs()}
 
-        return args, vars
+        return vars
 
     # Useful to parse the config file type
-    args, vars = parse_args()
+    vars = parse_args()
     cfg = load_config(yml_file, context=vars)
     return cfg
 
@@ -81,6 +76,9 @@ def load_model(cfg):
         if 'mlp' in corrected_key or 'spatial_line' in corrected_key:
             continue
         simple_state_dict[corrected_key] = v
+    # print(type(state_dict['model']))
+    # print(state_dict['model']['mlp.layers.0.weight'].keys())
+    # sys.exit()
     model.load_state_dict(simple_state_dict)
     return model
 
@@ -144,7 +142,7 @@ class PDBdataset(torch.utils.data.Dataset):
             item = {"graph": td_protein}
             td_graph = self.protein_view_transform(item)['graph']
         except Exception as e:
-            # print(e)
+            print(e)
             print(pdb)
         finally:
             if compressed:
@@ -167,10 +165,13 @@ class Collater:
         samples = [sample for sample in samples if sample[1] is not None]
         if len(samples) == 0:
             return None, None
-        names = [sample[0] for sample in samples]
-        td_prots = [sample[1] for sample in samples]
-        batched_proteins = data.Protein.pack(td_prots)
-        batched_graphs = self.graph_construction_model(batched_proteins)
+        try:
+            names = [sample[0] for sample in samples]
+            td_prots = [sample[1] for sample in samples]
+            batched_proteins = data.Protein.pack(td_prots)
+            batched_graphs = self.graph_construction_model(batched_proteins)
+        except:
+            return None, None
         return names, batched_graphs
 
 
@@ -184,6 +185,29 @@ def split_results(tensor_to_split, succesive_lengths):
 
 def to_numpy(torch_tensor):
     return torch_tensor.detach().cpu().numpy()
+
+
+def test():
+    with h5py.File('test.hdf5', 'a') as f:
+        embs = f['f3/1f3k_A.pdb/res_embs']
+        graph_embs = f['f3/1f3k_A.pdb/graph_embs']
+        res_ids = f['f3/1f3k_A.pdb/res_ids']
+        print(embs.shape)
+        print(graph_embs.shape)
+        print(res_ids.shape)
+
+
+def rename(data_path='data/foldseek_scope40/pdb'):
+    """
+    Add pdb extension that is missing when downloading from foldseek.
+    @param data_path:
+    @return:
+    """
+    for old_name in os.listdir(data_path):
+        new_name = old_name + '.pdb'
+        old_path = os.path.join(data_path, old_name)
+        new_path = os.path.join(data_path, new_name)
+        os.rename(old_path, new_path)
 
 
 if __name__ == '__main__':
@@ -201,7 +225,14 @@ if __name__ == '__main__':
     model = load_model(cfg=cfg)
     model = model.to(device)
 
-    dataset = PDBdataset(data_path=args.pdb_path, out_path=args.out_path)
+    globby = os.path.join("data/foldseek_scope40/pdb/*.pdb")
+    chain_list = [os.path.basename(pdb) for pdb in glob.glob(globby)]
+    # print(chain_list)
+    # chain_list=None
+    dataset = PDBdataset(data_path=args.pdb_path,
+                         out_path=args.out_path,
+                         chain_list=chain_list
+                         )
     # dataset = PDBdataset(data_path=args.pdb_path, chain_list=['f3/1f3k_A.pdb'])
     collater = Collater()
     dataloader = torch.utils.data.DataLoader(dataset,
@@ -240,14 +271,3 @@ if __name__ == '__main__':
                 for name, value in datasets.items():
                     if not name in grp_keys:
                         pdbgrp.create_dataset(name=name, data=value)
-
-
-    def test():
-        with h5py.File('test.hdf5', 'a') as f:
-            embs = f['f3/1f3k_A.pdb/res_embs']
-            graph_embs = f['f3/1f3k_A.pdb/graph_embs']
-            res_ids = f['f3/1f3k_A.pdb/res_ids']
-            print(embs.shape)
-            print(graph_embs.shape)
-            print(res_ids.shape)
-    # test()
