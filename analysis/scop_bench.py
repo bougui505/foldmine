@@ -40,6 +40,9 @@ import numpy as np
 import pickle
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from misc.Timer import Timer
+
+TIMER = Timer(autoreset=True)
 
 
 class Bench(object):
@@ -47,24 +50,38 @@ class Bench(object):
     def __init__(self,
                  scopfilename='data/dir.des.scope.2.01-stable.txt',
                  results='data/foldseekaln.gz',
-                 results_pickle='data/foldseekresults.pickle'):
+                 results_pickle='data/foldseekresults.pickle',
+                 scop40_list='data/scop40_list.txt'):
         """
         >>> bench = Bench()
+        >>> bench.scop_dict
+        {'d1ux8a_': 'a.1.1.1', 'd1dlwa_': 'a.1.1.1', 'd1uvya_': 'a.1.1.1', ...
+        >>> bench.all_scops
+        array([['a', '1', '1', '1'],
+               ['a', '1', '1', '1'],
+               ['a', '1', '1', '1'],
+               ...,
+               ['g', '91', '1', '1'],
+               ['g', '92', '1', '1'],
+               ['g', '93', '1', '1']], dtype='<U3')
+        >>> bench.all_scops.shape
+        (11211, 4)
+
         >>> bench.get_scop('d1a1xa_')
         ['b', '63', '1', '1']
         >>> query, neighbors = bench.get_result('d1a1xa_')
         >>> query
         ['b', '63', '1', '1']
         >>> neighbors
-        [['b', '63', '1', '1'], ['b', '60', '1', '1'], ['b', '45', '1', '0'], ...
+        ['d1jsga_', 'd3saoa_', 'd2qcka_', ...
 
         Get the sensitivity at the family level
         >>> bench.get_sensitivity('d1mkya2')
-        0.5428571428571428
+        0.2389937106918239
 
         Get the sensitivity at the superfamily level
         >>> bench.get_sensitivity('d1mkya2', level=2)
-        0.0036153289949385392
+        0.00066711140760507
 
         Get the sensitivity at the fold level
         >>> bench.get_sensitivity('d1mkya2', level=1)
@@ -74,10 +91,25 @@ class Bench(object):
         self.results = results
         self.results_pickle = results_pickle
         self.scop_dict = self.__parse_scop__()
+        self.scop40 = self._filter_scop_list(scop40_list)
+        self.den_dict = dict()
         if os.path.exists(self.results_pickle):
             self.results_dict = pickle.load(open(self.results_pickle, 'rb'))
         else:
             self.results_dict = self.__parse_results__()
+
+    @staticmethod
+    def selection(scop, level, target):
+        sel = (scop[:, :level + 1] == target[:level + 1]).all(axis=1)
+        if level < 3:
+            sel = np.logical_and(sel, scop[:, level + 1] != target[level + 1])
+        return sel
+
+    def _filter_scop_list(self, scop40_list):
+        scop40_list = set(np.genfromtxt(scop40_list, dtype=str))
+        scop40 = np.asarray([v.split('.') for k, v in self.scop_dict.items() if k in scop40_list])
+        return scop40
+        # all_scops = np.asarray([e.split('.') for e in self.scop_dict.values()])
 
     def __parse_scop__(self):
         """
@@ -116,7 +148,7 @@ class Bench(object):
         neighbors = list(self.results_dict[structure])
         neighbors.remove(structure)
         query = self.get_scop(structure)
-        neighbors = [self.get_scop(e) for e in neighbors]
+        # neighbors = [self.get_scop(e) for e in neighbors]
         return query, neighbors
 
     def get_sensitivity(self, structure, level=3):
@@ -128,23 +160,31 @@ class Bench(object):
         query, neighbors = self.get_result(structure)
         upFP = []
         for neig in neighbors:
+            neig = self.get_scop(neig)
             if neig[1] != query[1] or neig[0] != query[0]:
                 break
             upFP.append(neig)
+        # print(upFP, [self.get_scop(e) for e in neighbors])
 
-        def filter(scop, level, target):
-            scoptest = scop[level] == target[level]
-            if level == 3:
-                return scoptest
+        upFP = np.asarray(upFP)
+        if len(upFP) > 0:
+            sel = self.selection(upFP, level, query)
+            upFP = upFP[sel]
+            num = len(upFP)
+            # allhits = [e for e in neighbors if selection(e, level, query)]
+            # neighbors = np.asarray(neighbors)
+            key = (tuple(query[:level + 2]), level)
+            if key not in self.den_dict:
+                sel = self.selection(self.scop40, level, query)
+                den = sel.sum()
+                if level == 3:
+                    den -= 1
+                self.den_dict[key] = den
             else:
-                scoptest = (scoptest and scop[level + 1] != target[level + 1])
-                return scoptest
-
-        upFP = [e for e in upFP if filter(e, level, query)]
-        num = len(upFP)
-        allhits = [e for e in neighbors if filter(e, level, query)]
-        den = len(allhits)
-        if den == 0:
+                den = self.den_dict[key]
+            if den == 0:
+                return -1
+        else:
             return -1
         return num / den
 
@@ -237,3 +277,4 @@ if __name__ == '__main__':
                                       level=level,
                                       plotfile=outfilename + '.svg',
                                       ax=ax)
+        # print(bench.den_dict)
