@@ -148,7 +148,7 @@ class Bench(object):
             return -1
         return num / den
 
-    def all_sensitivity(self, outfilename, level=3, plotfile=None):
+    def all_sensitivity(self, outfilename, level=3, plotfile=None, ax=None):
         all_s = []
         for structure in tqdm(self.results_dict):
             s = self.get_sensitivity(structure, level=level)
@@ -156,9 +156,9 @@ class Bench(object):
                 all_s.append(s)
         np.savetxt(outfilename, all_s)
         if plotfile is not None:
-            plt.plot(sorted(all_s, reverse=True))
-            plt.xlabel('Fraction of queries')
-            plt.ylabel('Sensitivity up to 1st FP')
+            ax.plot(np.linspace(0, 1, len(all_s)), sorted(all_s, reverse=True))
+            ax.set_xlabel('Fraction of queries')
+            ax.set_ylabel('Sensitivity up to 1st FP')
             if level == 3:
                 plt.title('Family')
             if level == 2:
@@ -202,6 +202,7 @@ if __name__ == '__main__':
     parser.add_argument('--test', help='Test the code', action='store_true')
     parser.add_argument('--func', help='Test only the given function(s)', nargs='+')
     parser.add_argument('--foldseek', help='Foldseek SCOP bench', action='store_true')
+    parser.add_argument('--foldmine', help='Foldmine SCOP bench', action='store_true')
     args = parser.parse_args()
 
     # If log is present log the arguments to the log file:
@@ -223,8 +224,16 @@ if __name__ == '__main__':
         results = 'data/foldseekaln.gz'
         results_pickle = 'data/foldseekresults.pickle'
         outbasename = 'out/foldseek'
+    if args.foldmine:
+        results = None
+        results_pickle = 'data/scope_dict_result.p'
+        outbasename = 'out/foldmine'
     bench = Bench(results=results, results_pickle=results_pickle)
     for level in [1, 2, 3]:
         print('level', level)
-        outbasename += f'_{level}'
-        all_s = bench.all_sensitivity(outfilename=outbasename + '.txt', level=level, plotfile=outbasename + '.svg')
+        outfilename = f'{outbasename}_{level}'
+        fig, ax = plt.subplots()
+        all_s = bench.all_sensitivity(outfilename=outfilename + '.txt',
+                                      level=level,
+                                      plotfile=outfilename + '.svg',
+                                      ax=ax)
