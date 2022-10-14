@@ -47,3 +47,11 @@ conda activate foldmine
 ulimit -n 2048
 python -c 'import torch; print(torch.cuda.is_available())' # >>> True
 ```
+
+Inference is just done by running `python embed_all.py -i pdb_chainsplit/ -o example.hdf5`
+And from there one can build indices using `python makeindex.py --hdf5 example.hdf5 --out example`
+
+To query this index, one just need to run `python makeindex.py --query 1ycr_A.pdb` and you will see 
+a list of neighbors.
+
+
