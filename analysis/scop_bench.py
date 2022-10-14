@@ -218,12 +218,13 @@ if __name__ == '__main__':
                 doctest.run_docstring_examples(f, globals())
         sys.exit()
 
-    level = 3
     os.makedirs('out', exist_ok=True)
     if args.foldseek:
         results = 'data/foldseekaln.gz'
         results_pickle = 'data/foldseekresults.pickle'
-        outbasename = f'out/foldseek_{level}'
+        outbasename = 'out/foldseek'
     bench = Bench(results=results, results_pickle=results_pickle)
-    all_s = bench.all_sensitivity(outfilename=outbasename + '.txt', level=level, plotfile=outbasename + '.svg')
-    # np.savetxt('sens.txt', all_s)
+    for level in [1, 2, 3]:
+        print('level', level)
+        outbasename += f'_{level}'
+        all_s = bench.all_sensitivity(outfilename=outbasename + '.txt', level=level, plotfile=outbasename + '.svg')
