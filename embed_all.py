@@ -197,16 +197,18 @@ def test():
         print(res_ids.shape)
 
 
-def rename(data_path='data/foldseek_scope40/pdb'):
+def rename(data_path='data/scope_pdb/pdbstyle-2.01'):
     """
-    Add pdb extension that is missing when downloading from foldseek.
+    Add pdb extension that is missing when downloading from scope40.
     @param data_path:
     @return:
     """
-    for old_name in os.listdir(data_path):
-        new_name = old_name + '.pdb'
-        old_path = os.path.join(data_path, old_name)
-        new_path = os.path.join(data_path, new_name)
+    chain_list = glob.glob(os.path.join(data_path, "**", "*.ent"))
+    for old_path in chain_list:
+        dirname = os.path.dirname(old_path)
+        basename = os.path.basename(old_path)
+        new_path = os.path.join(dirname, basename.split('.ent')[0] + '.pdb')
+        # new_path = os.path.join(basename.split('.')[0] + '.pdb')
         os.rename(old_path, new_path)
 
 
@@ -220,20 +222,22 @@ if __name__ == '__main__':
     parser.add_argument('-o', "--out_path", help="Path to the out hdf5", default='test.hdf5')
     args, unparsed = parser.parse_known_args()
 
+    # rename()
+
+    # Load model
     cfg = parse_torchdrug_yaml()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = load_model(cfg=cfg)
     model = model.to(device)
 
-    globby = os.path.join("data/foldseek_scope40/pdb/*.pdb")
-    chain_list = [os.path.basename(pdb) for pdb in glob.glob(globby)]
+    # Prepare the data
+    # chain_list = ['d1q35a_.pdb']
     # print(chain_list)
-    # chain_list=None
+    chain_list = None
     dataset = PDBdataset(data_path=args.pdb_path,
                          out_path=args.out_path,
                          chain_list=chain_list
                          )
-    # dataset = PDBdataset(data_path=args.pdb_path, chain_list=['f3/1f3k_A.pdb'])
     collater = Collater()
     dataloader = torch.utils.data.DataLoader(dataset,
                                              batch_size=1,
