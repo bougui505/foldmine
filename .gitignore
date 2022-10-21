@@ -1,6 +1,6 @@
 __pycache__
 homologs.txt.gz
-models
+pre_gearnet/models
 pdb
 protein.log
 trainer.log

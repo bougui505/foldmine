@@ -57,7 +57,7 @@ def parse_torchdrug_yaml(yml_file='data/model/config.yml'):
     return cfg
 
 
-def load_model(cfg):
+def load_model(cfg, weights_path='data/model/latest_mc_gearnet_edge.pth'):
     def remove_prefix(text, prefix):
         if text.startswith(prefix):
             return text[len(prefix):]
@@ -67,7 +67,7 @@ def load_model(cfg):
     model_dict = cfg.task.model.model
     model_dict.pop('class')
     model = models.GeometryAwareRelationalGraphNeuralNetwork(**model_dict)
-    state_dict = torch.load('data/model/latest_mc_gearnet_edge.pth', map_location='cpu')
+    state_dict = torch.load(weights_path, map_location='cpu')
     simple_state_dict = {}
     for k, v in state_dict['model'].items():
         corrected_key = remove_prefix(k, 'model.model.')
@@ -85,6 +85,7 @@ def load_model(cfg):
 
 def pdbfile_to_chain(pdb_file):
     # toto/tata/1ycr_A.pdb.gz => 1ycr_A
+    # pdb_name = os.path.basename(pdb_file)[:-4]
     pdb_name = os.path.basename(pdb_file).split('.')[0]
     return pdb_name
 
@@ -225,9 +226,14 @@ if __name__ == '__main__':
     # rename()
 
     # Load model
-    cfg = parse_torchdrug_yaml()
+    yml_file = 'data/model/config.yml'
+    weights_path = 'data/model/latest_mc_gearnet_edge.pth'
+
+    cfg = parse_torchdrug_yaml(yml_file=yml_file)
+    model = load_model(cfg=cfg, weights_path=weights_path)
+
+    # Setup device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = load_model(cfg=cfg)
     model = model.to(device)
 
     # Prepare the data
@@ -255,8 +261,10 @@ if __name__ == '__main__':
                 # Now make inference and collect residues and graph embeddings.
                 with torch.no_grad():
                     out = model(graph=batched_graphs, input=batched_graphs.residue_feature.float())
-                graph_feat = out['graph_feature'][:, -512:].to('cpu')
-                node_feat = out['node_feature'][:, -512:].to('cpu')
+                # graph_feat = out['graph_feature'][:, -512:].to('cpu')
+                # node_feat = out['node_feature'][:, -512:].to('cpu')
+                graph_feat = out['graph_feature'].to('cpu')
+                node_feat = out['node_feature'].to('cpu')
                 res_ids = batched_graphs.residue_number.to('cpu')
 
                 # Split the result per batch.

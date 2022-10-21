@@ -40,9 +40,9 @@ import numpy as np
 import pickle
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from misc.Timer import Timer
+# from misc.Timer import Timer
 
-TIMER = Timer(autoreset=True)
+# TIMER = Timer(autoreset=True)
 
 
 class Bench(object):
@@ -266,7 +266,8 @@ if __name__ == '__main__':
         outbasename = 'out/foldseek'
     if args.foldmine:
         results = None
-        results_pickle = 'data/scope_dict_result.p'
+        results_pickle = 'data/pickles/scope_dict_result.p'
+        # results_pickle = 'data/scope_dict_result.p'
         outbasename = 'out/foldmine'
     bench = Bench(results=results, results_pickle=results_pickle)
     for level in [1, 2, 3]:
