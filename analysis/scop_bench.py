@@ -40,6 +40,8 @@ import numpy as np
 import pickle
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+
+
 # from misc.Timer import Timer
 
 # TIMER = Timer(autoreset=True)
@@ -199,6 +201,7 @@ class Bench(object):
             ax.plot(np.linspace(0, 1, len(all_s)), sorted(all_s, reverse=True))
             ax.set_xlabel('Fraction of queries')
             ax.set_ylabel('Sensitivity up to 1st FP')
+            ax.set_ylim(0, 1)
             if level == 3:
                 plt.title('Family')
             if level == 2:
@@ -226,6 +229,7 @@ if __name__ == '__main__':
     import sys
     import doctest
     import argparse
+
     # ### UNCOMMENT FOR LOGGING ####
     # import os
     # import logging
@@ -266,11 +270,12 @@ if __name__ == '__main__':
         outbasename = 'out/foldseek'
     if args.foldmine:
         results = None
-        # results_pickle = 'data/pickles/scope_dict_result.p'
-        # results_pickle = 'data/scope_dict_result.p'
-        results_pickle = 'data/pickles/scope_dict_result_graph.p'
-        outbasename = 'out/foldmine_graph'
-        # outbasename = 'out/foldmine_32'
+        # suffix = '512_residue'
+        suffix = '512_graph'
+        # suffix='32_residue'
+        # suffix='32_graph'
+        results_pickle = f'data/pickles/scope_dict_result_{suffix}.p'
+        outbasename = f'out/foldmine_{suffix}'
     bench = Bench(results=results, results_pickle=results_pickle)
     for level in [1, 2, 3]:
         print('level', level)
@@ -280,4 +285,3 @@ if __name__ == '__main__':
                                       level=level,
                                       plotfile=outfilename + '.svg',
                                       ax=ax)
-        # print(bench.den_dict)

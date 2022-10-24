@@ -46,7 +46,7 @@ def read_embeddings(infilename='data/hdf5/embeddings_scope.hdf5', return_level='
     return all_systems, all_embeddings
 
 
-def create_batches(tensors, max_size=500):
+def create_batches(tensors, max_size=10000):
     """
 
     @param tensors: list of np tensors of variable size (nres,dim)
@@ -131,9 +131,12 @@ def get_pairwise_dist(all_embeddings, return_level='residue'):
     return all_dists
 
 
-def process_hdf5(infilename='data/hdf5/embeddings_scope.hdf5', return_level='graph', out_dir='analysis/data/pickles'):
-    all_pickles = os.path.join(out_dir, f'scope_results_{return_level}.p')
-    dict_pickle = os.path.join(out_dir, f'scope_dict_result_{return_level}.p')
+def process_hdf5(infilename='data/hdf5/embeddings_scope.hdf5',
+                 return_level='graph',
+                 name_suffix='512',
+                 out_dir='analysis/data/pickles'):
+    all_pickles = os.path.join(out_dir, f'scope_results_{name_suffix}_{return_level}.p')
+    dict_pickle = os.path.join(out_dir, f'scope_dict_result_{name_suffix}_{return_level}.p')
 
     all_systems, all_embeddings = read_embeddings(infilename=infilename, return_level=return_level)
 
@@ -199,7 +202,8 @@ def compress_hdf5(in_hdf5, out_hdf5, out_dim=32):
     with h5py.File(out_hdf5, 'a') as f:
         for i, (system, graph_emb, res_embs) in enumerate(tqdm(zip(all_systems,
                                                                    all_embeddings_graphs_compressed,
-                                                                   all_embeddings_residues))):
+                                                                   all_embeddings_residues),
+                                                               total=len(all_systems))):
 
             pdb_dir = pdbchain_to_hdf5path(system)
 
@@ -213,14 +217,15 @@ def compress_hdf5(in_hdf5, out_hdf5, out_dim=32):
 if __name__ == '__main__':
     pass
     # setup variables
-    infilename = 'data/hdf5/embeddings_scope_32.hdf5'
-    # infilename = 'data/hdf5/embeddings_scope.hdf5'
-    return_level = 'graph'
-    # return_level = 'residue'
+    # infilename = 'data/hdf5/embeddings_scope_3072.hdf5'
+    infilename, name_suffix = 'data/hdf5/embeddings_scope.hdf5', '512'
+    # infilename, name_suffix = 'data/hdf5/embeddings_scope_32.hdf5', '32'
+    # return_level = 'graph'
+    return_level = 'residue'
     out_dir = 'analysis/data/pickles'
-    process_hdf5(infilename=infilename, return_level=return_level, out_dir=out_dir)
+    process_hdf5(infilename=infilename, return_level=return_level, out_dir=out_dir, name_suffix=name_suffix)
 
     # # large_hdf5 = 'data/hdf5/embeddings_scope.hdf5'
-    # large_hdf5 = 'data/hdf5/embeddings_scope_3072.hdf5'
-    # small_hdf5 = 'data/hdf5/embeddings_scope_32.hdf5'
+    large_hdf5 = 'data/hdf5/embeddings_scope_3072.hdf5'
+    small_hdf5 = 'data/hdf5/embeddings_scope_32.hdf5'
     # compress_hdf5(in_hdf5=large_hdf5, out_hdf5=small_hdf5, out_dim=32)
