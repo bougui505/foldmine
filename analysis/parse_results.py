@@ -1,7 +1,6 @@
 import os
 import sys
 
-import h5py
 import numpy as np
 import pickle
 import time
@@ -9,41 +8,7 @@ import torch
 from torch.nn.functional import pad
 from tqdm import tqdm
 
-from makeindex import len_hdf5
-
-
-# Read the embeddings to retrieve all the graph level embeddings
-def read_embeddings(infilename='data/hdf5/embeddings_scope.hdf5', return_level='residue', early_stop=None):
-    """
-    Read an embeddings hdf5 file and return the list of systems along with their embeddings
-    at the res or the graph level
-    @param infilename:
-    @param return_level:
-    @param early_stop:
-    @return:
-    """
-    with h5py.File(infilename, 'r') as f:
-        n = len_hdf5(f)
-        pbar = tqdm(total=n)
-        all_systems = []
-        all_embeddings = []
-        i = 0
-        # all_embeddings.append(f['1d']['d1dlwa_']['res_embs'][()])
-        # all_embeddings.append(f['2g']['d2gkma_']['res_embs'][()])
-        # all_embeddings.append(f['1j']['d1j6wa_']['res_embs'][()])
-        # all_embeddings.append(f['1h']['d1hywa_']['res_embs'][()])
-        for key in f.keys():
-            for system in f[key].keys():  # iterate pdb systems
-                embs_to_get = 'res_embs' if return_level == 'residue' else 'graph_embs'
-                v = f[key][system][embs_to_get][()]
-                all_systems.append(system)
-                all_embeddings.append(v)
-                pbar.update(1)
-                i += 1
-            if early_stop is not None and i > early_stop:
-                break
-        pbar.close()
-    return all_systems, all_embeddings
+from ..utils import read_embeddings, pdbchain_to_hdf5path
 
 
 def create_batches(tensors, max_size=10000):
@@ -78,6 +43,16 @@ def create_batches(tensors, max_size=10000):
 
 
 def get_pairwise_dist(all_embeddings, return_level='residue'):
+    """
+    For the residue level, the large number of vectors does not fit in memory.
+    Moreover, one needs to perform a complex block aggregation to go (N_res, N_res), to (N_graphs, N_graphs)
+
+    To speed things up, the computations happen in the gpu. Moreover, the bottleneck being the distance computation,
+    we group embeddings in larger batches to make cdist over several graphs and then brek these down in small blocks
+    @param all_embeddings:
+    @param return_level:
+    @return:
+    """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     t_0 = time.time()
     if return_level == 'residue':
@@ -155,65 +130,6 @@ def process_hdf5(infilename='data/hdf5/embeddings_scope.hdf5',
     pickle.dump(res_dict, open(dict_pickle, 'wb'))
 
 
-def train_compressor(vectors, out_dim, samples_to_use=100000, type='pca'):
-    if type == 'umap':
-        import umap
-        reducer = umap.UMAP(n_neighbors=10, n_components=out_dim, random_state=42)
-    else:
-        from sklearn.decomposition import PCA
-        reducer = PCA(n_components=out_dim)
-    samples_to_use = min(len(vectors), samples_to_use)
-    X_train = vectors[np.random.choice(len(vectors), size=samples_to_use, replace=False)]
-    reducer.fit(X_train)
-    return reducer
-
-
-def pdbfile_to_chain(pdb_file):
-    # # toto/tata/1ycr_A.pdb => 1ycr_A
-    # pdb_name = os.path.basename(pdb_file).split('.')[0]
-
-    # Careful with dots in name !
-    # toto/tata/1ycr_A.pdb.gz => 1ycr_A.pd
-    pdb_name = os.path.basename(pdb_file)[:-4]
-    return pdb_name
-
-
-def pdbchain_to_hdf5path(pdb_chain):
-    # 1ycr_A => yc/1ycr_A
-    pdb_dir = f"{pdb_chain[1:3]}/{pdb_chain}"
-    return pdb_dir
-
-
-def pdbfile_to_hdf5path(pdb_file):
-    # toto/tata/1ycr_A.pdb.gz => yc/1ycr_A
-    return pdbchain_to_hdf5path(pdbfile_to_chain(pdb_file))
-
-
-def compress_hdf5(in_hdf5, out_hdf5, out_dim=32):
-    all_systems, all_embeddings_graphs = read_embeddings(infilename=in_hdf5, return_level='graph')
-    all_embeddings_graphs = np.stack(all_embeddings_graphs)
-    graph_reducer = train_compressor(all_embeddings_graphs, out_dim=out_dim)
-    all_embeddings_graphs_compressed = graph_reducer.transform(all_embeddings_graphs)
-    print('compressed graphs')
-
-    all_systems, all_embeddings_residues = read_embeddings(infilename=in_hdf5, return_level='residue')
-    stacked_embeddings_residues = np.vstack(all_embeddings_residues)
-    residue_reducer = train_compressor(stacked_embeddings_residues, out_dim=out_dim)
-    with h5py.File(out_hdf5, 'a') as f:
-        for i, (system, graph_emb, res_embs) in enumerate(tqdm(zip(all_systems,
-                                                                   all_embeddings_graphs_compressed,
-                                                                   all_embeddings_residues),
-                                                               total=len(all_systems))):
-
-            pdb_dir = pdbchain_to_hdf5path(system)
-
-            pdbgrp = f.require_group(pdb_dir)
-            compressed_res_embs = residue_reducer.transform(res_embs)
-            datasets = {'graph_embs': graph_emb, 'res_embs': compressed_res_embs}
-            for name, value in datasets.items():
-                pdbgrp.create_dataset(name=name, data=value)
-
-
 if __name__ == '__main__':
     pass
     # setup variables
@@ -224,8 +140,3 @@ if __name__ == '__main__':
     return_level = 'residue'
     out_dir = 'analysis/data/pickles'
     process_hdf5(infilename=infilename, return_level=return_level, out_dir=out_dir, name_suffix=name_suffix)
-
-    # # large_hdf5 = 'data/hdf5/embeddings_scope.hdf5'
-    large_hdf5 = 'data/hdf5/embeddings_scope_3072.hdf5'
-    small_hdf5 = 'data/hdf5/embeddings_scope_32.hdf5'
-    # compress_hdf5(in_hdf5=large_hdf5, out_hdf5=small_hdf5, out_dim=32)

@@ -271,9 +271,9 @@ if __name__ == '__main__':
     if args.foldmine:
         results = None
         # suffix = '512_residue'
-        suffix = '512_graph'
+        # suffix = '512_graph'
         # suffix='32_residue'
-        # suffix='32_graph'
+        suffix='32_graph'
         results_pickle = f'data/pickles/scope_dict_result_{suffix}.p'
         outbasename = f'out/foldmine_{suffix}'
     bench = Bench(results=results, results_pickle=results_pickle)

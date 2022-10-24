@@ -1,4 +1,3 @@
-import gzip
 import os
 import sys
 
@@ -7,13 +6,15 @@ import easydict
 import glob
 import h5py
 import jinja2
-import numpy as np
 from jinja2 import meta
 from tqdm import tqdm
 import yaml
 
 import torch
-from torchdrug import models, layers, transforms, data, utils
+from torchdrug import models, utils
+
+from loader import PDBdataset, Collater
+from utils import pdbchain_to_hdf5path
 
 
 def parse_torchdrug_yaml(yml_file='data/model/config.yml'):
@@ -57,7 +58,7 @@ def parse_torchdrug_yaml(yml_file='data/model/config.yml'):
     return cfg
 
 
-def load_model(cfg, weights_path='data/model/latest_mc_gearnet_edge.pth'):
+def load_gearnet_model(cfg, weights_path='data/model/latest_mc_gearnet_edge.pth'):
     def remove_prefix(text, prefix):
         if text.startswith(prefix):
             return text[len(prefix):]
@@ -83,124 +84,6 @@ def load_model(cfg, weights_path='data/model/latest_mc_gearnet_edge.pth'):
     return model
 
 
-def pdbfile_to_chain(pdb_file):
-    # # toto/tata/1ycr_A.pdb => 1ycr_A
-    # pdb_name = os.path.basename(pdb_file).split('.')[0]
-
-    # Careful with dots in name !
-    # toto/tata/1ycr_A.pdb.gz => 1ycr_A.pd
-    pdb_name = os.path.basename(pdb_file)[:-4]
-    return pdb_name
-
-
-def pdbchain_to_hdf5path(pdb_chain):
-    # 1ycr_A => yc/1ycr_A
-    pdb_dir = f"{pdb_chain[1:3]}/{pdb_chain}"
-    return pdb_dir
-
-
-def pdbfile_to_hdf5path(pdb_file):
-    # toto/tata/1ycr_A.pdb.gz => yc/1ycr_A
-    return pdbchain_to_hdf5path(pdbfile_to_chain(pdb_file))
-
-
-class PDBdataset(torch.utils.data.Dataset):
-    def __init__(self, data_path='data/pdb_chainsplit', chain_list=None, out_path=None):
-        if chain_list is None:
-            self.chainlist = glob.glob(os.path.join(data_path, "**", "*.pdb*"))
-        else:
-            self.chainlist = [os.path.join(data_path, chain) for chain in chain_list]
-
-        # Optionally filter chainlist to remove existing entries in the hdf5
-        if out_path is not None:
-            with h5py.File(args.out_path, 'a') as f:
-                self.chainlist = [chain for chain in self.chainlist if pdbfile_to_hdf5path(chain) not in f]
-
-        self.data_path = data_path
-        self.protein_view_transform = transforms.ProteinView(view='residue')
-
-    def __len__(self):
-        return len(self.chainlist)
-
-    def __getitem__(self, index):
-        pdb = self.chainlist[index]
-        pdb_name = pdbfile_to_chain(pdb)
-        td_graph = None
-
-        # Torchdrug can only process pdb files. One needs to temporary save extracted pdb.gz
-        compressed = pdb.endswith('.gz')
-        if compressed:
-            pdb_name = os.path.basename(pdb).split('.')[0]
-            temp_pdb_name = f'/dev/shm/{pdb_name}'
-            with gzip.open(pdb, 'r') as f:
-                with open(temp_pdb_name, 'wb') as new_f:
-                    lines = f.readlines()
-                    new_f.writelines(lines)
-
-        # Build the graph
-        try:
-            # Build an initial residue graph from the pdb
-            # Weird castings, but seems to be necessary to use the transform.
-            # Seems to be a pain to get the graph from the pdb without using the transform...
-            td_protein = data.Protein.from_pdb(pdb_file=pdb if not compressed else temp_pdb_name)
-            item = {"graph": td_protein}
-            td_graph = self.protein_view_transform(item)['graph']
-        except Exception as e:
-            print(e)
-            print(pdb)
-        finally:
-            if compressed:
-                os.remove(temp_pdb_name)
-        return pdb_name, td_graph
-
-
-class Collater:
-    def __init__(self):
-        self.graph_construction_model = layers.GraphConstruction(node_layers=[layers.geometry.AlphaCarbonNode()],
-                                                                 edge_layers=[
-                                                                     layers.geometry.SpatialEdge(radius=10.0,
-                                                                                                 min_distance=5),
-                                                                     layers.geometry.KNNEdge(k=10, min_distance=5),
-                                                                     layers.geometry.SequentialEdge(max_distance=2)],
-                                                                 edge_feature="gearnet")
-
-    def collate_block(self, samples):
-        # Filter failed preprocessing and pack graphs.
-        samples = [sample for sample in samples if sample[1] is not None]
-        if len(samples) == 0:
-            return None, None
-        try:
-            names = [sample[0] for sample in samples]
-            td_prots = [sample[1] for sample in samples]
-            batched_proteins = data.Protein.pack(td_prots)
-            batched_graphs = self.graph_construction_model(batched_proteins)
-        except:
-            return None, None
-        return names, batched_graphs
-
-
-def split_results(tensor_to_split, succesive_lengths):
-    succesive_lengths = [0] + list(np.cumsum(to_numpy(succesive_lengths)))
-    slices = list()
-    for low, high in zip(succesive_lengths, succesive_lengths[1:]):
-        slices.append(tensor_to_split[low:high])
-    return slices
-
-
-def to_numpy(torch_tensor):
-    return torch_tensor.detach().cpu().numpy()
-
-
-def test():
-    with h5py.File('test.hdf5', 'a') as f:
-        embs = f['f3/1f3k_A.pdb/res_embs']
-        graph_embs = f['f3/1f3k_A.pdb/graph_embs']
-        res_ids = f['f3/1f3k_A.pdb/res_ids']
-        print(embs.shape)
-        print(graph_embs.shape)
-        print(res_ids.shape)
-
-
 def rename(data_path='data/scope_pdb/pdbstyle-2.01'):
     """
     Add pdb extension that is missing when downloading from scope40.
@@ -216,6 +99,41 @@ def rename(data_path='data/scope_pdb/pdbstyle-2.01'):
         os.rename(old_path, new_path)
 
 
+def compute_embeddings(model, dataloader, out_path, device='cpu'):
+    with h5py.File(out_path, 'a') as f:
+        for i, (names, batched_graphs) in enumerate(tqdm(dataloader)):
+            # Sometimes all preprocessing failed
+            if names is None:
+                continue
+            try:
+                batched_graphs = batched_graphs.to(device)
+                # Now make inference and collect residues and graph embeddings.
+                with torch.no_grad():
+                    out = model(graph=batched_graphs, input=batched_graphs.residue_feature.float())
+                # graph_feat = out['graph_feature'][:, -512:].to('cpu')
+                # node_feat = out['node_feature'][:, -512:].to('cpu')
+                graph_feat = out['graph_feature'].to('cpu')
+                node_feat = out['node_feature'].to('cpu')
+                res_ids = batched_graphs.residue_number.to('cpu')
+
+                # Split the result per batch.
+                successive_lengths = batched_graphs.num_residues
+                split_ids = torch.split(res_ids, successive_lengths)
+                split_node_feat = torch.split(node_feat, successive_lengths)
+            except Exception as e:
+                print(e)
+                continue
+            # Append each system to the hdf5
+            for pdb, graph_embs, res_ids, res_embs in zip(names, graph_feat, split_ids, split_node_feat):
+                pdb_dir = pdbchain_to_hdf5path(pdb)
+                pdbgrp = f.require_group(pdb_dir)
+                grp_keys = list(pdbgrp.keys())
+                datasets = {'graph_embs': graph_embs, 'res_ids': res_ids, 'res_embs': res_embs}
+                for name, value in datasets.items():
+                    if not name in grp_keys:
+                        pdbgrp.create_dataset(name=name, data=value)
+
+
 if __name__ == '__main__':
     import warnings
 
@@ -226,14 +144,11 @@ if __name__ == '__main__':
     parser.add_argument('-o', "--out_path", help="Path to the out hdf5", default='test.hdf5')
     args, unparsed = parser.parse_known_args()
 
-    # rename()
-
     # Load model
     yml_file = 'data/model/config.yml'
     weights_path = 'data/model/latest_mc_gearnet_edge.pth'
-
     cfg = parse_torchdrug_yaml(yml_file=yml_file)
-    model = load_model(cfg=cfg, weights_path=weights_path)
+    model = load_gearnet_model(cfg=cfg, weights_path=weights_path)
 
     # Setup device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -254,35 +169,5 @@ if __name__ == '__main__':
                                              num_workers=os.cpu_count(),
                                              collate_fn=collater.collate_block)
 
-    with h5py.File(args.out_path, 'a') as f:
-        for i, (names, batched_graphs) in enumerate(tqdm(dataloader)):
-            # Sometimes all preprocessing failed
-            if names is None:
-                continue
-            try:
-                batched_graphs = batched_graphs.to(device)
-                # Now make inference and collect residues and graph embeddings.
-                with torch.no_grad():
-                    out = model(graph=batched_graphs, input=batched_graphs.residue_feature.float())
-                # graph_feat = out['graph_feature'][:, -512:].to('cpu')
-                # node_feat = out['node_feature'][:, -512:].to('cpu')
-                graph_feat = out['graph_feature'].to('cpu')
-                node_feat = out['node_feature'].to('cpu')
-                res_ids = batched_graphs.residue_number.to('cpu')
-
-                # Split the result per batch.
-                successive_lengths = batched_graphs.num_residues
-                split_ids = split_results(res_ids, successive_lengths)
-                split_node_feat = split_results(node_feat, successive_lengths)
-            except Exception as e:
-                print(e)
-                continue
-            # Append each system to the hdf5
-            for pdb, graph_embs, res_ids, res_embs in zip(names, graph_feat, split_ids, split_node_feat):
-                pdb_dir = pdbchain_to_hdf5path(pdb)
-                pdbgrp = f.require_group(pdb_dir)
-                grp_keys = list(pdbgrp.keys())
-                datasets = {'graph_embs': graph_embs, 'res_ids': res_ids, 'res_embs': res_embs}
-                for name, value in datasets.items():
-                    if not name in grp_keys:
-                        pdbgrp.create_dataset(name=name, data=value)
+    # Finally, get the embeddings and store them in a hdf5
+    compute_embeddings(model=model, dataloader=dataloader, out_path=args.out_path, device=device)

@@ -1,45 +1,12 @@
-#!/usr/bin/env python3
-# -*- coding: UTF8 -*-
+import os
+import sys
 
-#############################################################################
-# Author: Guillaume Bouvier -- guillaume.bouvier@pasteur.fr                 #
-# https://research.pasteur.fr/en/member/guillaume-bouvier/                  #
-# Copyright (c) 2022 Institut Pasteur                                       #
-#                 				                            #
-#                                                                           #
-#  Redistribution and use in source and binary forms, with or without       #
-#  modification, are permitted provided that the following conditions       #
-#  are met:                                                                 #
-#                                                                           #
-#  1. Redistributions of source code must retain the above copyright        #
-#  notice, this list of conditions and the following disclaimer.            #
-#  2. Redistributions in binary form must reproduce the above copyright     #
-#  notice, this list of conditions and the following disclaimer in the      #
-#  documentation and/or other materials provided with the distribution.     #
-#  3. Neither the name of the copyright holder nor the names of its         #
-#  contributors may be used to endorse or promote products derived from     #
-#  this software without specific prior written permission.                 #
-#                                                                           #
-#  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS      #
-#  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT        #
-#  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR    #
-#  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT     #
-#  HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,   #
-#  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT         #
-#  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,    #
-#  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY    #
-#  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT      #
-#  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE    #
-#  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.     #
-#                                                                           #
-#  This program is free software: you can redistribute it and/or modify     #
-#                                                                           #
-#############################################################################
-
-import time
 import datetime
+import h5py
 import logging
+import time
 import torch
+from tqdm import tqdm
 
 
 class ETA(object):
@@ -80,6 +47,31 @@ def log(msg):
         pass
 
 
+def to_numpy(torch_tensor):
+    return torch_tensor.detach().cpu().numpy()
+
+
+def pdbfile_to_chain(pdb_file):
+    # # toto/tata/1ycr_A.pdb => 1ycr_A
+    # pdb_name = os.path.basename(pdb_file).split('.')[0]
+
+    # Careful with dots in name !
+    # toto/tata/1ycr_A.pdb.gz => 1ycr_A.pd
+    pdb_name = os.path.basename(pdb_file)[:-4]
+    return pdb_name
+
+
+def pdbchain_to_hdf5path(pdb_chain):
+    # 1ycr_A => yc/1ycr_A
+    pdb_dir = f"{pdb_chain[1:3]}/{pdb_chain}"
+    return pdb_dir
+
+
+def pdbfile_to_hdf5path(pdb_file):
+    # toto/tata/1ycr_A.pdb.gz => yc/1ycr_A
+    return pdbchain_to_hdf5path(pdbfile_to_chain(pdb_file))
+
+
 def load_model(filename, model):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model.load_state_dict(torch.load(filename, map_location=torch.device(device)))
@@ -89,6 +81,48 @@ def load_model(filename, model):
 
 def save_model(model, filename):
     torch.save(model.state_dict(), filename)
+
+
+def len_hdf5(hdf5f):
+    """
+    Returns the len of a hdf5
+    """
+    n = 0
+    for key in hdf5f.keys():
+        n += len(hdf5f[key].keys())
+    return n
+
+
+# Read the embeddings to retrieve all the graph level embeddings
+def read_embeddings(infilename='data/hdf5/embeddings_scope.hdf5', return_level='residue', early_stop=None):
+    """
+    Read an embeddings hdf5 file and return the list of systems along with their embeddings
+    at the res or the graph level
+
+    @param infilename:
+    @param return_level:
+    @param early_stop:
+    @return:
+    """
+    with h5py.File(infilename, 'r') as f:
+        n = len_hdf5(f)
+        pbar = tqdm(total=n)
+        all_systems = []
+        all_embeddings = []
+        i = 0
+        # all_embeddings.append(f['1d']['d1dlwa_']['res_embs'][()])
+        for key in f.keys():
+            for system in f[key].keys():  # iterate pdb systems
+                embs_to_get = 'res_embs' if return_level == 'residue' else 'graph_embs'
+                v = f[key][system][embs_to_get][()]
+                all_systems.append(system)
+                all_embeddings.append(v)
+                pbar.update(1)
+                i += 1
+            if early_stop is not None and i > early_stop:
+                break
+        pbar.close()
+    return all_systems, all_embeddings
 
 
 if __name__ == '__main__':
