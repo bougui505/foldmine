@@ -266,9 +266,11 @@ if __name__ == '__main__':
         outbasename = 'out/foldseek'
     if args.foldmine:
         results = None
-        results_pickle = 'data/pickles/scope_dict_result.p'
+        # results_pickle = 'data/pickles/scope_dict_result.p'
         # results_pickle = 'data/scope_dict_result.p'
-        outbasename = 'out/foldmine'
+        results_pickle = 'data/pickles/scope_dict_result_graph.p'
+        outbasename = 'out/foldmine_graph'
+        # outbasename = 'out/foldmine_32'
     bench = Bench(results=results, results_pickle=results_pickle)
     for level in [1, 2, 3]:
         print('level', level)

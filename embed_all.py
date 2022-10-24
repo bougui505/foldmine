@@ -84,9 +84,12 @@ def load_model(cfg, weights_path='data/model/latest_mc_gearnet_edge.pth'):
 
 
 def pdbfile_to_chain(pdb_file):
-    # toto/tata/1ycr_A.pdb.gz => 1ycr_A
-    # pdb_name = os.path.basename(pdb_file)[:-4]
-    pdb_name = os.path.basename(pdb_file).split('.')[0]
+    # # toto/tata/1ycr_A.pdb => 1ycr_A
+    # pdb_name = os.path.basename(pdb_file).split('.')[0]
+
+    # Careful with dots in name !
+    # toto/tata/1ycr_A.pdb.gz => 1ycr_A.pd
+    pdb_name = os.path.basename(pdb_file)[:-4]
     return pdb_name
 
 

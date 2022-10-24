@@ -1,11 +1,12 @@
+import os
 import sys
 
 import h5py
 import numpy as np
-import os
 import pickle
 import time
 import torch
+from torch.nn.functional import pad
 from tqdm import tqdm
 
 from makeindex import len_hdf5
@@ -42,38 +43,98 @@ def read_embeddings(infilename='data/hdf5/embeddings_scope.hdf5', return_level='
             if early_stop is not None and i > early_stop:
                 break
         pbar.close()
-    return np.asarray(all_systems), all_embeddings
+    return all_systems, all_embeddings
+
+
+def create_batches(tensors, max_size=500):
+    """
+
+    @param tensors: list of np tensors of variable size (nres,dim)
+    @param max_size: the max size of a batch
+    @return:
+    """
+    all_batches = []
+    all_sections = []
+    current_size = 0
+    current_sections = []
+    current_batch = []
+    for tensor in tensors:
+        size = len(tensor)
+        if current_size < max_size:
+            current_batch.append(tensor)
+            current_sections.append(size)
+            current_size += size
+        else:
+            stack = np.concatenate(current_batch, axis=0)
+            all_batches.append(stack)
+            all_sections.append(current_sections)
+            current_batch = [tensor]
+            current_sections = [size]
+            current_size = size
+    stack = np.concatenate(current_batch, axis=0)
+    all_batches.append(stack)
+    all_sections.append(current_sections)
+    return all_batches, all_sections
 
 
 def get_pairwise_dist(all_embeddings, return_level='residue'):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     t_0 = time.time()
     if return_level == 'residue':
-        dists = torch.zeros((len(all_embeddings), len(all_embeddings)))
-        dists.to(device)
-        for i, emb1 in enumerate(tqdm(all_embeddings)):
-            torch_emb1 = torch.from_numpy(emb1)[None, ...].to(device)
-            for j, emb2 in enumerate(all_embeddings):
-                if j <= i:
+        n_dists = len(all_embeddings)
+        # batch embeddings by grouping them together and keeping track of lengths. Push to torch and gpu
+        batches, sections = create_batches(all_embeddings)
+        torch_batches = [torch.from_numpy(emb1)[None, ...].to(device) for emb1 in batches]
+
+        # Populate small blocks that correspond to distances between batches.
+        block_dists = []
+        for i, (torch_batch_row, sections_row) in enumerate(
+                tqdm(zip(torch_batches, sections), total=len(torch_batches))):
+            row_dists = []
+            for j, (torch_batch_col, sections_col) in enumerate(zip(torch_batches, sections)):
+                if j < i:
                     continue
-                torch_emb2 = torch.from_numpy(emb2)[None, ...].to(device)
-                with torch.no_grad():
-                    local_dists = torch.cdist(torch_emb1, torch_emb2)
-                mindist = local_dists.min()
-                dists[i, j] = mindist
-        dists = dists + dists.T
+                # Compute pairwise dists and split into blocks corresponding to individual graphs
+                local_dists = torch.cdist(torch_batch_row, torch_batch_col)
+                chunks_row = torch.split(local_dists, sections_row, dim=1)
+                all_chunks = [torch.split(chunk_row, sections_col, dim=2) for chunk_row in chunks_row]
+
+                # Turn each small block into one scalar value and store in a small_dist block of the return matrix
+                small_dist = torch.zeros(size=(len(sections_row), len(sections_col)))
+                for k, small_row in enumerate(all_chunks):
+                    for l, small_block in enumerate(small_row):
+                        mindist = torch.min(small_block)
+                        small_dist[k, l] = mindist
+                row_dists.append(small_dist)
+            block_dists.append(row_dists)
+
+        # Concatenate the block results using padding to take the j<i condition
+        row_dists = []
+        for i in range(len(block_dists)):
+            row = block_dists[i]
+            stacked_row = torch.cat(row, dim=1)
+            p2d = (n_dists - stacked_row.shape[1], 0)
+            out = pad(stacked_row, p2d, "constant")
+            row_dists.append(out)
+        all_dists = torch.cat(row_dists, dim=0)
+
+        # Filter values beneath the diagonal (just the blocks) and complete with transpose
+        all_dists = torch.triu(all_dists, diagonal=1)
+        all_dists = all_dists + all_dists.T
     else:
+        # Graph-level computation
         all_embeddings = np.stack(all_embeddings)[None, ...]
         all_embeddings = torch.from_numpy(all_embeddings).to(device)
-        dists = torch.cdist(all_embeddings, all_embeddings)[0]
-    dists = dists.cpu().numpy()
+        all_dists = torch.cdist(all_embeddings, all_embeddings)[0]
+    all_dists = all_dists.cpu().numpy()
     print('computed cdist in ', time.time() - t_0)
-    return dists
+    return all_dists
 
 
 def process_hdf5(infilename='data/hdf5/embeddings_scope.hdf5', return_level='graph', out_dir='analysis/data/pickles'):
     all_pickles = os.path.join(out_dir, f'scope_results_{return_level}.p')
     dict_pickle = os.path.join(out_dir, f'scope_dict_result_{return_level}.p')
+
     all_systems, all_embeddings = read_embeddings(infilename=infilename, return_level=return_level)
 
     # Compute the pairwise distances
@@ -83,12 +144,11 @@ def process_hdf5(infilename='data/hdf5/embeddings_scope.hdf5', return_level='gra
 
     res_dict = {}
     for i, system in enumerate(tqdm(all_systems)):
-        sorter = np.int32(np.argsort(dists[i]))
+        sorter = np.argsort(dists[i])
         res_dict[system] = [all_systems[j] for j in sorter]
-    pickle.dump((all_systems, all_embeddings, dists, res_dict), open(all_pickles, 'wb'))
 
-    # Just save the res dict for sharing results.
-    all_systems, all_embeddings, dists, res_dict = pickle.load(open(all_pickles, 'rb'))
+    # Save the results for sharing results.
+    pickle.dump((all_systems, all_embeddings, dists, res_dict), open(all_pickles, 'wb'))
     pickle.dump(res_dict, open(dict_pickle, 'wb'))
 
 
@@ -106,9 +166,12 @@ def train_compressor(vectors, out_dim, samples_to_use=100000, type='pca'):
 
 
 def pdbfile_to_chain(pdb_file):
-    # toto/tata/1ycr_A.pdb.gz => 1ycr_A
-    # pdb_name = os.path.basename(pdb_file)[:-4]
-    pdb_name = os.path.basename(pdb_file).split('.')[0]
+    # # toto/tata/1ycr_A.pdb => 1ycr_A
+    # pdb_name = os.path.basename(pdb_file).split('.')[0]
+
+    # Careful with dots in name !
+    # toto/tata/1ycr_A.pdb.gz => 1ycr_A.pd
+    pdb_name = os.path.basename(pdb_file)[:-4]
     return pdb_name
 
 
@@ -126,8 +189,8 @@ def pdbfile_to_hdf5path(pdb_file):
 def compress_hdf5(in_hdf5, out_hdf5, out_dim=32):
     all_systems, all_embeddings_graphs = read_embeddings(infilename=in_hdf5, return_level='graph')
     all_embeddings_graphs = np.stack(all_embeddings_graphs)
-    graph_reduced = train_compressor(all_embeddings_graphs, out_dim=out_dim)
-    all_embeddings_graphs_compressed = graph_reduced.transform(all_embeddings_graphs)
+    graph_reducer = train_compressor(all_embeddings_graphs, out_dim=out_dim)
+    all_embeddings_graphs_compressed = graph_reducer.transform(all_embeddings_graphs)
     print('compressed graphs')
 
     all_systems, all_embeddings_residues = read_embeddings(infilename=in_hdf5, return_level='residue')
@@ -151,8 +214,9 @@ if __name__ == '__main__':
     pass
     # setup variables
     infilename = 'data/hdf5/embeddings_scope_32.hdf5'
-    # return_level = 'graph'
-    return_level = 'residue'
+    # infilename = 'data/hdf5/embeddings_scope.hdf5'
+    return_level = 'graph'
+    # return_level = 'residue'
     out_dir = 'analysis/data/pickles'
     process_hdf5(infilename=infilename, return_level=return_level, out_dir=out_dir)
 
