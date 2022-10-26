@@ -94,13 +94,17 @@ def len_hdf5(hdf5f):
 
 
 # Read the embeddings to retrieve all the graph level embeddings
-def read_embeddings(infilename='data/hdf5/embeddings_scope.hdf5', return_level='residue', early_stop=None):
+def read_embeddings(infilename='data/hdf5/embeddings_scope.hdf5',
+                    return_level='residue',
+                    return_res_ids=False,
+                    early_stop=None):
     """
     Read an embeddings hdf5 file and return the list of systems along with their embeddings
     at the res or the graph level
 
     @param infilename:
     @param return_level:
+    @param return_res_ids:
     @param early_stop:
     @return:
     """
@@ -109,6 +113,7 @@ def read_embeddings(infilename='data/hdf5/embeddings_scope.hdf5', return_level='
         pbar = tqdm(total=n)
         all_systems = []
         all_embeddings = []
+        all_res_ids = []
         i = 0
         # all_embeddings.append(f['1d']['d1dlwa_']['res_embs'][()])
         for key in f.keys():
@@ -117,11 +122,15 @@ def read_embeddings(infilename='data/hdf5/embeddings_scope.hdf5', return_level='
                 v = f[key][system][embs_to_get][()]
                 all_systems.append(system)
                 all_embeddings.append(v)
+                if return_res_ids:
+                    all_res_ids.append(f[key][system]['res_ids'][()])
                 pbar.update(1)
                 i += 1
             if early_stop is not None and i > early_stop:
                 break
         pbar.close()
+    if return_res_ids:
+        return all_systems, all_embeddings, all_res_ids
     return all_systems, all_embeddings
 
 

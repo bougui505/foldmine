@@ -28,26 +28,42 @@ def compress_hdf5(in_hdf5, out_hdf5, out_dim=32):
     all_embeddings_graphs_compressed = graph_reducer.transform(all_embeddings_graphs)
     print('compressed graphs')
 
-    all_systems, all_embeddings_residues = read_embeddings(infilename=in_hdf5, return_level='residue')
+    all_systems, all_embeddings_residues, all_ids_residues = read_embeddings(infilename=in_hdf5,
+                                                                             return_level='residue',
+                                                                             return_res_ids=True)
     stacked_embeddings_residues = np.vstack(all_embeddings_residues)
     residue_reducer = train_compressor(stacked_embeddings_residues, out_dim=out_dim)
     with h5py.File(out_hdf5, 'a') as f:
-        for i, (system, graph_emb, res_embs) in enumerate(tqdm(zip(all_systems,
-                                                                   all_embeddings_graphs_compressed,
-                                                                   all_embeddings_residues),
-                                                               total=len(all_systems))):
+        for i, (system, graph_emb, res_embs, res_ids) in enumerate(tqdm(zip(all_systems,
+                                                                            all_embeddings_graphs_compressed,
+                                                                            all_embeddings_residues,
+                                                                            all_ids_residues),
+                                                                        total=len(all_systems))):
 
             pdb_dir = pdbchain_to_hdf5path(system)
-
             pdbgrp = f.require_group(pdb_dir)
             compressed_res_embs = residue_reducer.transform(res_embs)
-            datasets = {'graph_embs': graph_emb, 'res_embs': compressed_res_embs}
+            datasets = {'graph_embs': graph_emb, 'res_embs': compressed_res_embs, 'res_ids': res_ids}
             for name, value in datasets.items():
                 pdbgrp.create_dataset(name=name, data=value)
 
 
+def complete_hdf5(compressed_hdf5, original_hdf5):
+    all_systems, all_embeddings_residues, all_ids_residues = read_embeddings(infilename=original_hdf5,
+                                                                             return_level='residue',
+                                                                             return_res_ids=True)
+    with h5py.File(compressed_hdf5, 'a') as f:
+        for i, (system, res_ids) in enumerate(tqdm(zip(all_systems,
+                                                       all_ids_residues),
+                                                   total=len(all_systems))):
+            pdb_dir = pdbchain_to_hdf5path(system)
+            pdbgrp = f.require_group(pdb_dir)
+            pdbgrp.create_dataset(name='res_ids', data=res_ids)
+
+
 if __name__ == '__main__':
     pass
-    large_hdf5 = 'data/hdf5/embeddings_scope_3072.hdf5'
+    large_hdf5 = 'data/hdf5/embeddings_scope.hdf5'
     small_hdf5 = 'data/hdf5/embeddings_scope_32.hdf5'
-    compress_hdf5(in_hdf5=large_hdf5, out_hdf5=small_hdf5, out_dim=32)
+    # compress_hdf5(in_hdf5=large_hdf5, out_hdf5=small_hdf5, out_dim=32)
+    complete_hdf5(original_hdf5=large_hdf5, compressed_hdf5=small_hdf5)
