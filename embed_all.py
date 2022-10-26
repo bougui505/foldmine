@@ -72,9 +72,10 @@ def load_gearnet_model(cfg, weights_path='data/model/latest_mc_gearnet_edge.pth'
     simple_state_dict = {}
     for k, v in state_dict['model'].items():
         corrected_key = remove_prefix(k, 'model.model.')
+        corrected_key = remove_prefix(corrected_key, 'model.')
         if 'batch_norm_layers' in corrected_key:
             corrected_key = corrected_key.replace('batch_norm_layers', 'batch_norms')
-        if 'mlp' in corrected_key or 'spatial_line' in corrected_key:
+        if 'mlp' in corrected_key or 'spatial_line' in corrected_key or 'boundary' in corrected_key:
             continue
         simple_state_dict[corrected_key] = v
     # print(type(state_dict['model']))
@@ -146,7 +147,8 @@ if __name__ == '__main__':
 
     # Load model
     yml_file = 'data/model/config.yml'
-    weights_path = 'data/model/latest_mc_gearnet_edge.pth'
+    # weights_path = 'data/model/latest_mc_gearnet_edge.pth'
+    weights_path = 'data/model/latest_ap_gearnet_edge.pth'
     cfg = parse_torchdrug_yaml(yml_file=yml_file)
     model = load_gearnet_model(cfg=cfg, weights_path=weights_path)
 
